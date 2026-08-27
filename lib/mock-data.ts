@@ -90,3 +90,84 @@ export const PRICING_CONFIG = {
   securityDeposit: 300,
   currency: "USD",
 };
+
+export type UserRole = "admin" | "guest";
+export type UserStatus = "activo" | "invitado";
+
+export type MockUser = {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: UserRole;
+  estado: UserStatus;
+};
+
+export const mockUsers: MockUser[] = [
+  {
+    id: "user-1",
+    nombre: "Rafael Hernández",
+    email: "admin@test.com",
+    rol: "admin",
+    estado: "activo",
+  },
+  {
+    id: "user-2",
+    nombre: "María Gómez",
+    email: "maria.gomez@example.com",
+    rol: "guest",
+    estado: "activo",
+  },
+  {
+    id: "user-3",
+    nombre: "Carlos Ruiz",
+    email: "carlos.ruiz@example.com",
+    rol: "guest",
+    estado: "invitado",
+  },
+];
+
+export type ReservationStatus = "actual" | "futura" | "pasada";
+
+export type MockReservation = {
+  id: string;
+  huespedName: string;
+  fechaCheckIn: string;
+  fechaCheckOut: string;
+  estado: ReservationStatus;
+  montoTotal: number;
+};
+
+export const mockReservations: MockReservation[] = [
+  {
+    id: "res-1",
+    huespedName: "María Gómez",
+    fechaCheckIn: "2026-08-20",
+    fechaCheckOut: "2026-08-24",
+    estado: "actual",
+    montoTotal: 1300,
+  },
+  {
+    id: "res-2",
+    huespedName: "Carlos Ruiz",
+    fechaCheckIn: "2026-09-10",
+    fechaCheckOut: "2026-09-14",
+    estado: "futura",
+    montoTotal: 1450,
+  },
+  {
+    id: "res-3",
+    huespedName: "Laura Fernández",
+    fechaCheckIn: "2026-10-01",
+    fechaCheckOut: "2026-10-05",
+    estado: "futura",
+    montoTotal: 1000,
+  },
+  {
+    id: "res-4",
+    huespedName: "Jorge Salas",
+    fechaCheckIn: "2026-07-01",
+    fechaCheckOut: "2026-07-05",
+    estado: "pasada",
+    montoTotal: 1000,
+  },
+];

@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function Navbar() {
   const router = useRouter();
+  const { user, logout } = useAuth();
 
   function handleLogout() {
-    // Mock: en producción esto invalidará la sesión real (Supabase Auth).
+    logout();
     router.push("/login");
   }
 
@@ -23,12 +25,29 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <button
-          onClick={handleLogout}
-          className="rounded-full border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
-        >
-          Cerrar sesión
-        </button>
+        {user ? (
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/perfil"
+              className="rounded-full px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:text-neutral-900 sm:px-4"
+            >
+              Perfil
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="rounded-full border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900 sm:px-4"
+            >
+              Cerrar sesión
+            </button>
+          </div>
+        ) : (
+          <Link
+            href="/login"
+            className="rounded-full border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
+          >
+            Iniciar sesión
+          </Link>
+        )}
       </nav>
     </header>
   );
