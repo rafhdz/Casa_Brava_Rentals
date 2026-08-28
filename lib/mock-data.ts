@@ -4,15 +4,83 @@
 export type Photo = {
   id: string;
   label: string;
+  url: string;
 };
 
 export const PROPERTY_PHOTOS: Photo[] = [
-  { id: "foto-1", label: "Fachada principal" },
-  { id: "foto-2", label: "Piscina infinita" },
-  { id: "foto-3", label: "Sala principal" },
-  { id: "foto-4", label: "Cocina gourmet" },
-  { id: "foto-5", label: "Habitación master" },
-  { id: "foto-6", label: "Vista al atardecer" },
+  { id: "jardin-1", label: "Jardín", url: "/images/jardin_1.jpeg" },
+  { id: "jardin-2", label: "Jardín", url: "/images/jardin_2.jpeg" },
+  { id: "jardin-3", label: "Jardín", url: "/images/jardin_3.jpeg" },
+  { id: "jardin-4", label: "Jardín", url: "/images/jardin_4.jpeg" },
+  { id: "jardin-5", label: "Jardín", url: "/images/jardin_5.jpeg" },
+
+  { id: "parking-1", label: "Estacionamiento", url: "/images/parking_1.jpeg" },
+  { id: "parking-2", label: "Estacionamiento", url: "/images/parking_2.jpeg" },
+  { id: "parking-3", label: "Estacionamiento", url: "/images/parking_3.jpeg" },
+  { id: "parking-4", label: "Estacionamiento", url: "/images/parking_4.jpeg" },
+  { id: "parking-5", label: "Estacionamiento", url: "/images/parking_5.jpeg" },
+
+  { id: "ent-principal-lat-1", label: "Entrada Principal Lateral", url: "/images/ent_principal_lat_1.jpeg" },
+  { id: "ent-principal-lat-2", label: "Entrada Principal Lateral", url: "/images/ent_principal_lat_2.jpeg" },
+
+  { id: "ent-principal-1", label: "Entrada Principal", url: "/images/ent_principal_1.jpeg" },
+  { id: "ent-principal-2", label: "Entrada Principal", url: "/images/ent_principal_2.jpeg" },
+
+  { id: "terraza-1", label: "Terraza", url: "/images/terraza_1.jpeg" },
+  { id: "terraza-2", label: "Terraza", url: "/images/terraza_2.jpeg" },
+  { id: "terraza-3", label: "Terraza", url: "/images/terraza_3.jpeg" },
+  { id: "terraza-4", label: "Terraza", url: "/images/terraza_4.jpeg" },
+
+  { id: "mezzanine-1", label: "Habitación del Mezzanine", url: "/images/del_mezzanine_1.jpeg" },
+  { id: "mezzanine-2", label: "Habitación del Mezzanine", url: "/images/del_mezzanine_2.jpeg" },
+  { id: "mezzanine-3", label: "Habitación del Mezzanine", url: "/images/del_mezzanine_3.jpeg" },
+  { id: "mezzanine-4", label: "Habitación del Mezzanine", url: "/images/del_mezzanine_4.jpeg" },
+
+  { id: "hab-terraza-1", label: "Habitación de la Terraza", url: "/images/de_la_terraza_1.jpeg" },
+  { id: "hab-terraza-2", label: "Habitación de la Terraza", url: "/images/de_la_terraza_2.jpeg" },
+  { id: "hab-terraza-3", label: "Habitación de la Terraza", url: "/images/de_la_terraza_3.jpeg" },
+  { id: "hab-terraza-4", label: "Habitación de la Terraza", url: "/images/de_la_terraza_4.jpeg" },
+  { id: "hab-terraza-5", label: "Habitación de la Terraza", url: "/images/de_la_terraza_5.jpeg" },
+
+  { id: "sala-tv-1", label: "Sala de TV", url: "/images/sala_tv_1.jpeg" },
+  { id: "sala-tv-2", label: "Sala de TV", url: "/images/sala_tv_2.jpeg" },
+  { id: "sala-tv-3", label: "Sala de TV", url: "/images/sala_tv_3.jpeg" },
+  { id: "sala-tv-4", label: "Sala de TV", url: "/images/sala_tv_4.jpeg" },
+
+  { id: "pasillo-principal-1", label: "Pasillo Principal", url: "/images/pas_principal.jpeg" },
+
+  { id: "amarillo-1", label: "Habitación Amarilla", url: "/images/amarillo_1.jpeg" },
+  { id: "amarillo-2", label: "Habitación Amarilla", url: "/images/amarillo_2.jpeg" },
+  { id: "amarillo-3", label: "Habitación Amarilla", url: "/images/amarillo_3.jpeg" },
+  { id: "amarillo-4", label: "Habitación Amarilla", url: "/images/amarillo_4.jpeg" },
+  { id: "amarillo-5", label: "Habitación Amarilla", url: "/images/amarillo_5.jpeg" },
+
+  { id: "hab-principal-1", label: "Habitación Principal", url: "/images/principal_1.jpeg" },
+  { id: "hab-principal-2", label: "Habitación Principal", url: "/images/principal_2.jpeg" },
+  { id: "hab-principal-3", label: "Habitación Principal", url: "/images/principal_3.jpeg" },
+  { id: "hab-principal-4", label: "Habitación Principal", url: "/images/principal_4.jpeg" },
+  { id: "hab-principal-5", label: "Habitación Principal", url: "/images/principal_5.jpeg" },
+  { id: "hab-principal-6", label: "Habitación Principal", url: "/images/principal_6.jpeg" },
+  { id: "hab-principal-7", label: "Habitación Principal", url: "/images/principal_7.jpeg" },
+
+  { id: "hab-fuente-1", label: "Habitación de la Fuente", url: "/images/de_la_fuente_1.jpeg" },
+  { id: "hab-fuente-2", label: "Habitación de la Fuente", url: "/images/de_la_fuente_2.jpeg" },
+  { id: "hab-fuente-3", label: "Habitación de la Fuente", url: "/images/de_la_fuente_3.jpeg" },
+  { id: "hab-fuente-4", label: "Habitación de la Fuente", url: "/images/de_la_fuente_4.jpeg" },
+
+  { id: "hab-mane-1", label: "Habitación de Mane", url: "/images/de_mane_1.jpeg" },
+  { id: "hab-mane-2", label: "Habitación de Mane", url: "/images/de_mane_2.jpeg" },
+  { id: "hab-mane-3", label: "Habitación de Mane", url: "/images/de_mane_3.jpeg" },
+  { id: "hab-mane-4", label: "Habitación de Mane", url: "/images/de_mane_4.jpeg" },
+  { id: "hab-mane-5", label: "Habitación de Mane", url: "/images/de_mane_5.jpeg" },
+  { id: "hab-mane-6", label: "Habitación de Mane", url: "/images/de_mane_6.jpeg" },
+  { id: "hab-mane-7", label: "Habitación de Mane", url: "/images/de_mane_7.jpeg" },
+  { id: "hab-mane-8", label: "Habitación de Mane", url: "/images/de_mane_8.jpeg" },
+  { id: "hab-mane-9", label: "Habitación de Mane", url: "/images/de_mane_9.jpeg" },
+
+  { id: "hab-abuela-1", label: "Habitación de la Abuela", url: "/images/de_la_abuela_1.jpeg" },
+  { id: "hab-abuela-2", label: "Habitación de la Abuela", url: "/images/de_la_abuela_2.jpeg" },
+  { id: "hab-abuela-3", label: "Habitación de la Abuela", url: "/images/de_la_abuela_3.jpeg" },
 ];
 
 export type Amenity = {

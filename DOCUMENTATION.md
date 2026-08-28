@@ -48,7 +48,7 @@ Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `c
 
 ## 4. Dónde editar los componentes visuales principales
 
-- **Carrusel de fotos**: la lógica de navegación (flechas, puntos) está en [components/Carousel.tsx](components/Carousel.tsx). Actualmente muestra rectángulos grises con el nombre de la foto en vez de imágenes reales — cuando haya fotos definitivas, se reemplaza el bloque `<div className="... bg-neutral-200 ...">` por una etiqueta `<Image>` de Next.js.
+- **Carrusel de fotos**: la lógica de navegación (flechas, puntos) está en [components/Carousel.tsx](components/Carousel.tsx). Ya usa `<Image>` de `next/image` (`fill` + `object-cover`, `priority` solo en la primera foto) sobre los archivos reales servidos desde `public/images/`; la etiqueta (`label`) se muestra debajo de la foto. Cada objeto `Photo` en `lib/mock-data.ts` ahora requiere un campo `url` (ruta pública de la imagen, ej. `/images/jardin_1.jpeg`) además de `id` y `label`.
 - **Tarjetas de "Servicios Adicionales"** (Comida, SPA/Masajes, Paquete de Vinos): el diseño de cada tarjeta está en [components/ServiceCard.tsx](components/ServiceCard.tsx). El contenido (título, descripción, precio) se edita en `lib/mock-data.ts`, no en el componente.
 - **Amenidades**: el diseño de la grilla de íconos está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx); el contenido (qué amenidades aparecen) se edita en `lib/mock-data.ts`.
 - **Tablas del dashboard de administración**: el diseño de la tabla de usuarios está en [components/UsersTable.tsx](components/UsersTable.tsx) y el de reservaciones en [components/ReservationsTable.tsx](components/ReservationsTable.tsx). El contenido de ambas tablas se edita en `lib/mock-data.ts`, igual que el resto del sitio.
@@ -59,7 +59,7 @@ Todo está en un único archivo: **[lib/mock-data.ts](lib/mock-data.ts)**. Ahí 
 
 | Qué quieres cambiar | Variable en `mock-data.ts` |
 |---|---|
-| Fotos del carrusel (cantidad y etiquetas) | `PROPERTY_PHOTOS` |
+| Fotos del carrusel (cantidad, etiquetas y `url` del archivo en `public/images/`) | `PROPERTY_PHOTOS` |
 | Amenidades de la casa | `AMENITIES` |
 | Servicios adicionales (Comida, SPA, Vinos) | `ADDITIONAL_SERVICES` |
 | Tipos de tarifa (Estándar / Flexible) y su recargo | `FARE_OPTIONS` |
