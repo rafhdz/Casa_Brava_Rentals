@@ -20,16 +20,17 @@ Luego abrir [http://localhost:3000](http://localhost:3000).
 ```
 app/
   layout.tsx          → Layout global (Navbar + Footer envolviendo todas las páginas)
-  page.tsx             → Pantalla principal del huésped (home)
+  page.tsx             → Pantalla principal del huésped (home) — ruta protegida, envuelta en <ProtectedRoute>
   login/page.tsx        → Pantalla de acceso restringido
-  reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago)
+  reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago) — ruta protegida, envuelta en <ProtectedRoute>
   pago-exitoso/page.tsx → Pantalla estática de confirmación de pago
-  admin/page.tsx        → Dashboard de administración (usuarios y reservaciones)
-  perfil/page.tsx       → Vista de perfil del usuario con sesión activa
+  admin/page.tsx        → Dashboard de administración (usuarios y reservaciones) — sin protección de ruta
+  perfil/page.tsx       → Vista de perfil del usuario con sesión activa — protegida con su propia redirección inline
 
 components/
   Navbar.tsx            → Barra superior (logo + Perfil/Iniciar sesión/Cerrar sesión según la sesión)
   Footer.tsx            → Pie de página
+  ProtectedRoute.tsx     → Envoltorio cliente que exige sesión activa; redirige a /login si no la hay
   Carousel.tsx          → Carrusel de fotos de la propiedad
   AmenitiesList.tsx      → Lista de amenidades con íconos
   ServiceCard.tsx         → Tarjeta individual de un servicio adicional
@@ -97,6 +98,8 @@ El prototipo distingue dos roles: **Huésped** (`guest`) y **Administrador** (`a
 
 **Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): muestra Nombre, Correo y Rol del usuario en sesión, en dos tarjetas (avatar + ficha de datos) con la paleta `neutral`. Si no hay ningún usuario en sesión, redirige automáticamente a `/login`.
 
+**Rutas protegidas por sesión (`ProtectedRoute`)**: el Home (`/`) y el flujo de reservación (`/reservar`) ahora exigen sesión activa. La protección se implementa con [components/ProtectedRoute.tsx](components/ProtectedRoute.tsx), un componente `"use client"` que envuelve el contenido de la página: consume `useAuth()`, y si `!isLoading && !user` redirige a `/login`; mientras `isLoading` es `true` muestra un estado de carga breve, y si hay sesión renderiza `children` normalmente. Esto permite que `app/page.tsx` siga siendo un Server Component — solo el wrapper `<ProtectedRoute>` es cliente, no toda la página. `/admin` sigue sin este guard (ver sección 7).
+
 **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)):
 
 - **Sección "Usuarios invitados"**: tabla con los datos de `mockUsers` (nombre, email, rol, estado) usando [components/UsersTable.tsx](components/UsersTable.tsx). El botón "Editar" es únicamente visual, no abre ningún formulario todavía.
@@ -109,7 +112,7 @@ Esto es un prototipo de interfaz, así que lo siguiente **todavía no funciona d
 
 - **Login** ([app/login/page.tsx](app/login/page.tsx)): valida formato de correo y que la contraseña no esté vacía, pero no verifica ninguna contraseña real contra un backend. Falta conectar autenticación real con roles reales (planeado: Supabase Auth).
 - **Sesión mockeada** ([lib/AuthContext.tsx](lib/AuthContext.tsx)): la "sesión" es un objeto guardado en `localStorage` del navegador, sin token, sin expiración y sin backend que la respalde. Cualquiera puede editarla manualmente desde las DevTools del navegador. Falta reemplazarla por sesiones reales de Supabase Auth (cookies/JWT).
-- **Protección de rutas**: `/admin` no está protegida por ningún guard de ruta — cualquiera que conozca la URL puede entrar directamente sin pasar por el login, incluso sin sesión o con rol `guest`. Solo `/perfil` redirige si no hay sesión. Falta un guard de ruta real basado en sesión/rol (planeado: middleware de Next.js + Supabase Auth).
+- **Protección de rutas**: `/admin` no está protegida por ningún guard de ruta — cualquiera que conozca la URL puede entrar directamente sin pasar por el login, incluso sin sesión o con rol `guest`. `/`, `/reservar` (vía `<ProtectedRoute>`) y `/perfil` (redirección inline) sí redirigen a `/login` si no hay sesión, pero es una redirección en el cliente (después de que la página ya cargó), no un guard real de servidor — no evita que el HTML/JS de la página llegue a cargarse brevemente antes de redirigir. Falta un guard de ruta real basado en sesión/rol (planeado: middleware de Next.js + Supabase Auth).
 - **Disponibilidad de fechas** ([app/reservar/page.tsx](app/reservar/page.tsx)): el selector de fechas no valida contra un calendario de disponibilidad real; solo calcula noches entre dos fechas.
 - **Pago** (botón "Proceder al pago"): redirige directo a la pantalla de éxito sin cobrar nada. Falta integrar un proveedor de pagos real (planeado: Stripe).
 - **Persistencia de la reservación**: no se guarda en ningún lado; al recargar la página se pierde todo. Falta una base de datos (planeado: Supabase).
