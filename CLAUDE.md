@@ -26,6 +26,7 @@ Sistema de reservaciones para una casa privada de renta ("Casa Brava Rentals"), 
 
 - **Mobile-first**: escribir las clases base pensando en mobile y usar prefijos (`sm:`, `md:`, `lg:`) para escalar hacia arriba. Nunca partir de un layout desktop y luego "achicar".
 - Paleta minimalista en escala de grises (neutral-*) con acentos en negro (`neutral-900`) para botones primarios. Mantener esa consistencia al agregar nuevas vistas.
+- Íconos `.svg` estáticos servidos desde `public/icons/` (amenidades en `public/icons/amenities/<categoría>/`, íconos de sistema en `public/icons/system/`) se renderizan con el tag `<img>` nativo, no con `next/image` — el optimizador de imágenes de Next.js rechaza archivos `.svg` a menos que se habilite `dangerouslyAllowSVG` en `next.config.ts`, y no se ha activado esa opción. `next/image` sigue siendo el estándar para fotografías (`.jpeg`/`.png`) como en `Carousel.tsx`.
 - Componentes reutilizables van en `components/`; las páginas (`app/**/page.tsx`) solo componen esos componentes y manejan estado/routing, no deberían tener bloques grandes de markup propios.
 - Los formularios y flujos con estado (login, reservación) son Client Components (`"use client"`) porque dependen de `useState`/`useRouter`. Las páginas puramente de presentación (home, pago exitoso) se mantienen como Server Components cuando sea posible.
 - Para proteger una ruta por sesión mockeada sin convertir toda la página en Client Component, envolver su contenido con `<ProtectedRoute>` ([components/ProtectedRoute.tsx](components/ProtectedRoute.tsx)) en vez de agregar `"use client"` + `useEffect` de redirección directamente en `page.tsx`. Esto permite que páginas como `app/page.tsx` sigan siendo Server Components (solo el wrapper es cliente).
@@ -73,3 +74,13 @@ A partir de esta iteración, cada cambio estructural, componente clave nuevo, o 
 - **`DOCUMENTATION.md`**: cuando cambie la estructura de carpetas, se agregue una ruta o componente que el equipo necesite editar, o cambien los datos mockeados relevantes para la demo.
 
 No se considera terminada una tarea de código si estos dos archivos quedaron desactualizados respecto al estado real del repositorio.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

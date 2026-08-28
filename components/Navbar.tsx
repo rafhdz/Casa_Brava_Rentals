@@ -16,28 +16,30 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/90 backdrop-blur">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900 text-sm font-semibold text-white">
-            CB
-          </span>
-          <span className="text-lg font-semibold tracking-tight text-neutral-900">
-            Casa Brava
-          </span>
+        <Link href="/" className="flex items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
+          <img src="/icons/system/logo.svg" alt="Casa Brava" className="h-10 w-auto" />
         </Link>
 
         {user ? (
           <div className="flex items-center gap-2 sm:gap-3">
             <Link
               href="/perfil"
-              className="rounded-full px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:text-neutral-900 sm:px-4"
+              title="Perfil"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
             >
-              Perfil
+              {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
+              <img src="/icons/system/profile.svg" alt="" aria-hidden className="h-5 w-5" />
+              <span className="sr-only">Perfil</span>
             </Link>
             <button
               onClick={handleLogout}
-              className="rounded-full border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900 sm:px-4"
+              title="Cerrar sesión"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
             >
-              Cerrar sesión
+              {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
+              <img src="/icons/system/logout.svg" alt="" aria-hidden className="h-5 w-5" />
+              <span className="sr-only">Cerrar sesión</span>
             </button>
           </div>
         ) : (

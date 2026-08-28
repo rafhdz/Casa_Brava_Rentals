@@ -50,8 +50,8 @@ Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `c
 ## 4. Dónde editar los componentes visuales principales
 
 - **Carrusel de fotos**: la lógica de navegación (flechas, puntos) está en [components/Carousel.tsx](components/Carousel.tsx). Ya usa `<Image>` de `next/image` (`fill` + `object-cover`, `priority` solo en la primera foto) sobre los archivos reales servidos desde `public/images/`; la etiqueta (`label`) se muestra debajo de la foto. Cada objeto `Photo` en `lib/mock-data.ts` ahora requiere un campo `url` (ruta pública de la imagen, ej. `/images/jardin_1.jpeg`) además de `id` y `label`.
-- **Tarjetas de "Servicios Adicionales"** (Comida, SPA/Masajes, Paquete de Vinos): el diseño de cada tarjeta está en [components/ServiceCard.tsx](components/ServiceCard.tsx). El contenido (título, descripción, precio) se edita en `lib/mock-data.ts`, no en el componente.
-- **Amenidades**: el diseño de la grilla de íconos está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx); el contenido (qué amenidades aparecen) se edita en `lib/mock-data.ts`.
+- **Tarjetas de "Servicios Adicionales"** (Comida, SPA/Masajes, Paquete de Vinos): el diseño de cada tarjeta está en [components/ServiceCard.tsx](components/ServiceCard.tsx), que ya usa `<Image>` de `next/image` (contenedor `relative h-48` + `object-cover`) en vez del placeholder gris. El contenido (título, descripción, precio) se edita en `lib/mock-data.ts`, no en el componente. Cada servicio en `ADDITIONAL_SERVICES` ahora requiere también un campo `image` (ruta pública a la fotografía en `public/images/`, ej. `/images/servicio_comida_holder.jpg`) — sin este campo, `ServiceCard` no puede renderizar la tarjeta.
+- **Amenidades**: el diseño está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx), que ahora itera primero por **categoría** (`AmenityCategory`, subtítulo tipo Airbnb) y luego por cada amenidad dentro de ella, mostrando su ícono `.svg` (tag `<img>` nativo, no `next/image`, porque el optimizador de imágenes de Next.js no sirve SVG sin habilitar `dangerouslyAllowSVG` en `next.config.ts`) seguido del texto. El contenido (categorías, amenidades y la ruta `url` de cada ícono) se edita en `lib/mock-data.ts`; los archivos `.svg` reales viven en `public/icons/amenities/<categoría>/`.
 - **Tablas del dashboard de administración**: el diseño de la tabla de usuarios está en [components/UsersTable.tsx](components/UsersTable.tsx) y el de reservaciones en [components/ReservationsTable.tsx](components/ReservationsTable.tsx). El contenido de ambas tablas se edita en `lib/mock-data.ts`, igual que el resto del sitio.
 
 ## 5. Dónde están los datos mockeados (para editar antes de la demo)
@@ -61,8 +61,8 @@ Todo está en un único archivo: **[lib/mock-data.ts](lib/mock-data.ts)**. Ahí 
 | Qué quieres cambiar | Variable en `mock-data.ts` |
 |---|---|
 | Fotos del carrusel (cantidad, etiquetas y `url` del archivo en `public/images/`) | `PROPERTY_PHOTOS` |
-| Amenidades de la casa | `AMENITIES` |
-| Servicios adicionales (Comida, SPA, Vinos) | `ADDITIONAL_SERVICES` |
+| Amenidades de la casa (categorías y, dentro de cada una, sus amenidades con `url` al ícono `.svg`) | `AMENITIES` |
+| Servicios adicionales (Comida, SPA, Vinos), incluyendo la `image` de cada uno | `ADDITIONAL_SERVICES` |
 | Tipos de tarifa (Estándar / Flexible) y su recargo | `FARE_OPTIONS` |
 | Precio por noche y depósito de garantía | `PRICING_CONFIG` |
 | Usuarios del panel de administración (nombre, email, rol, estado) | `mockUsers` |
@@ -71,6 +71,10 @@ Todo está en un único archivo: **[lib/mock-data.ts](lib/mock-data.ts)**. Ahí 
 Ejemplo: para cambiar el precio por noche de $250 a $300, solo hay que editar `nightlyRate` dentro de `PRICING_CONFIG` en ese archivo. El resumen de cobro en la página de reservación se recalcula solo.
 
 Para agregar un nuevo usuario o una nueva reservación de prueba, basta con agregar un objeto más al array `mockUsers` o `mockReservations` en `lib/mock-data.ts` — las tablas del panel de administración se actualizan automáticamente.
+
+**Estructura de `AMENITIES`**: dejó de ser una lista plana de amenidades para ser un arreglo de categorías (`AmenityCategory[]`). Cada categoría tiene `id`, `category` (el subtítulo visible, ej. "Cocina y comedor") y `items: Amenity[]`; cada `Amenity` tiene `id`, `label` y `url` (ruta pública al ícono `.svg`, ej. `/icons/amenities/cocina/fridge.svg`). Para agregar una amenidad nueva, primero colocar su ícono en `public/icons/amenities/<categoría>/` y luego referenciarlo desde `url` en el `items` correspondiente — si dos amenidades no tienen un ícono dedicado (ej. "congelador" y "refrigerador"), es válido que compartan el mismo archivo `.svg`.
+
+**Íconos del sistema** ([public/icons/system/](public/icons/system/)): íconos `.svg` usados en la UI de navegación (perfil, cerrar sesión, logo, carrito). [components/Navbar.tsx](components/Navbar.tsx) los usa como `<img>` nativo en vez de texto plano para los botones "Perfil" y "Cerrar sesión"; el texto se conserva accesible con `sr-only` para lectores de pantalla.
 
 ## 6. Sistema de roles simulado, sesión y panel de administración
 
@@ -94,7 +98,7 @@ El prototipo distingue dos roles: **Huésped** (`guest`) y **Administrador** (`a
 4. Con cualquier otro correo válido, se guarda una sesión de "Huésped" genérico con ese correo y redirige a `/` (vista de huésped).
 5. Recargar el navegador (o reiniciar `npm run dev`) y volver a entrar a la app: la sesión sigue activa porque vive en `localStorage`, no en memoria.
 
-**Navbar dinámico** ([components/Navbar.tsx](components/Navbar.tsx)): lee `useAuth()` para decidir qué mostrar — si hay sesión activa, muestra los enlaces "Perfil" y "Cerrar sesión"; si no hay sesión, muestra únicamente "Iniciar sesión".
+**Navbar dinámico** ([components/Navbar.tsx](components/Navbar.tsx)): lee `useAuth()` para decidir qué mostrar — si hay sesión activa, muestra los botones de "Perfil" y "Cerrar sesión" como íconos (`/icons/system/profile.svg` y `/icons/system/logout.svg`, con texto accesible `sr-only` y `title` como tooltip); si no hay sesión, muestra el enlace de texto "Iniciar sesión".
 
 **Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): muestra Nombre, Correo y Rol del usuario en sesión, en dos tarjetas (avatar + ficha de datos) con la paleta `neutral`. Si no hay ningún usuario en sesión, redirige automáticamente a `/login`.
 
