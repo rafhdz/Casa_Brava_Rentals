@@ -40,6 +40,13 @@ export default function Carousel({ photos }: { photos: Photo[] }) {
     setTransformOrigin(`${xPercent}% ${yPercent}%`);
   }
 
+  // Los botones de zoom viven dentro del contenedor que escucha onMouseMove para el
+  // paneo; sin detener la propagación aquí, mover el cursor sobre ellos sigue moviendo
+  // la imagen debajo y hace casi imposible atinarle a los controles.
+  function handleControlsMouseMove(e: MouseEvent<HTMLDivElement>) {
+    e.stopPropagation();
+  }
+
   // Auto-avance cada 4s; se reinicia con cada cambio de foto (manual o automático),
   // así una interacción manual pausa temporalmente el avance automático.
   useEffect(() => {
@@ -95,7 +102,11 @@ export default function Carousel({ photos }: { photos: Photo[] }) {
           ›
         </button>
 
-        <div className="absolute right-3 top-3 flex flex-col gap-2">
+        <div
+          className="absolute right-3 top-3 z-10 flex cursor-default flex-col gap-2 pointer-events-auto"
+          onMouseMove={handleControlsMouseMove}
+          onMouseEnter={handleControlsMouseMove}
+        >
           <button
             type="button"
             onClick={zoomIn}
