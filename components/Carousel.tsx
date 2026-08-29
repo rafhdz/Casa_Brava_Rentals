@@ -1,28 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import type { Photo } from "@/lib/mock-data";
 
+const AUTO_ROTATE_INTERVAL_MS = 4000;
+
 export default function Carousel({ photos }: { photos: Photo[] }) {
   const [index, setIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
   function goTo(newIndex: number) {
     setIndex((newIndex + photos.length) % photos.length);
   }
 
+  // Auto-avance cada 4s; se reinicia con cada cambio de foto (manual o automático),
+  // así una interacción manual pausa temporalmente el avance automático.
+  useEffect(() => {
+    if (isPaused) return;
+    const interval = setInterval(() => {
+      setIndex((prev) => (prev + 1) % photos.length);
+    }, AUTO_ROTATE_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isPaused, index, photos.length]);
+
   const current = photos[index];
 
   return (
-    <div className="w-full">
+    <div
+      className="w-full"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+    >
       <div className="relative h-64 w-full overflow-hidden rounded-2xl bg-white sm:h-80 md:h-96">
         <Image
+          key={current.id}
           src={current.url}
           alt={current.label}
           fill
           priority={index === 0}
           sizes="(min-width: 768px) 700px, 100vw"
-          className="object-contain"
+          className="object-contain [animation:fade-in_700ms_ease-in-out]"
         />
 
         <button
