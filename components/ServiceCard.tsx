@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import type { AdditionalService } from "@/lib/mock-data";
 
 export default function ServiceCard({ service }: { service: AdditionalService }) {
@@ -16,6 +17,12 @@ export default function ServiceCard({ service }: { service: AdditionalService })
       <h3 className="text-base font-semibold text-neutral-900">{service.title}</h3>
       <p className="mt-1 flex-1 text-sm text-neutral-500">{service.description}</p>
       <p className="mt-3 text-sm font-medium text-neutral-900">{service.priceLabel}</p>
+      <Link
+        href={`/servicios/${service.id}`}
+        className="mt-4 inline-flex items-center justify-center rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-neutral-700"
+      >
+        Reservar
+      </Link>
     </div>
   );
 }

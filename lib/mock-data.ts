@@ -507,6 +507,184 @@ export const ADDITIONAL_SERVICES: AdditionalService[] = [
   },
 ];
 
+// Formatea una fecha simulada ISO (ej. "2026-09-04") a un formato corto legible (ej. "04 sept.").
+export function formatSimulatedDate(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00`);
+  return date.toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+}
+
+export type Masseuse = {
+  id: string;
+  name: string;
+  availableDays: string[]; // fechas ISO simuladas, ej. "2026-09-04"
+  availableTimes: string[]; // horarios simulados, ej. "10:00 AM"
+};
+
+export const SPA_MASSEUSES: Masseuse[] = [
+  {
+    id: "masajista-ana",
+    name: "Ana",
+    availableDays: ["2026-09-02", "2026-09-04", "2026-09-09"],
+    availableTimes: ["10:00 AM", "12:00 PM", "2:00 PM", "4:00 PM"],
+  },
+  {
+    id: "masajista-carlos",
+    name: "Carlos",
+    availableDays: ["2026-09-03", "2026-09-05", "2026-09-10"],
+    availableTimes: ["9:00 AM", "11:00 AM", "3:00 PM", "5:00 PM"],
+  },
+  {
+    id: "masajista-laura",
+    name: "Laura",
+    availableDays: ["2026-09-02", "2026-09-06", "2026-09-11"],
+    availableTimes: ["10:00 AM", "1:00 PM", "4:00 PM"],
+  },
+];
+
+export const SPA_SESSION_PRICE = 600;
+
+export type MealType = "desayuno" | "almuerzo" | "cena";
+
+export const MEAL_TYPES: { id: MealType; label: string }[] = [
+  { id: "desayuno", label: "Desayuno" },
+  { id: "almuerzo", label: "Almuerzo" },
+  { id: "cena", label: "Cena" },
+];
+
+export type MenuOption = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+};
+
+export const FOOD_MENU_OPTIONS: Record<MealType, MenuOption[]> = {
+  desayuno: [
+    {
+      id: "desayuno-continental",
+      name: "Continental",
+      description: "Fruta de temporada, pan artesanal, jugo y café de la región.",
+      price: 200,
+    },
+    {
+      id: "desayuno-mexicano",
+      name: "Mexicano",
+      description: "Huevos al gusto, frijoles refritos y salsa casera.",
+      price: 220,
+    },
+  ],
+  almuerzo: [
+    {
+      id: "almuerzo-parrilla",
+      name: "Parrilla norteña",
+      description: "Corte de res a la parrilla con guarniciones locales.",
+      price: 350,
+    },
+    {
+      id: "almuerzo-vegetariano",
+      name: "Vegetariano",
+      description: "Platillo de temporada a base de vegetales de la región.",
+      price: 280,
+    },
+  ],
+  cena: [
+    {
+      id: "cena-degustacion",
+      name: "Menú de degustación",
+      description: "Tres tiempos preparados por el cocinero local.",
+      price: 450,
+    },
+    {
+      id: "cena-ligera",
+      name: "Cena ligera",
+      description: "Ensalada, sopa y plato principal ligero.",
+      price: 300,
+    },
+  ],
+};
+
+export const FOOD_AVAILABLE_DATES: string[] = [
+  "2026-09-01",
+  "2026-09-02",
+  "2026-09-03",
+  "2026-09-04",
+  "2026-09-05",
+];
+
+export type WineBottle = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+};
+
+export const WINE_BOTTLES: WineBottle[] = [
+  {
+    id: "vino-tinto-parvada",
+    name: "Parvada Tinto",
+    description: "Corte bordelés añejado en barrica.",
+    price: 650,
+  },
+  {
+    id: "vino-blanco-parvada",
+    name: "Parvada Blanco",
+    description: "Chardonnay fresco y afrutado.",
+    price: 580,
+  },
+  {
+    id: "vino-rosado-parvada",
+    name: "Parvada Rosado",
+    description: "Rosado ligero ideal para la terraza.",
+    price: 560,
+  },
+  {
+    id: "vino-espumoso-parvada",
+    name: "Parvada Espumoso",
+    description: "Espumoso brut, perfecto para celebrar.",
+    price: 700,
+  },
+];
+
+export const WINE_PACKAGE = {
+  label: "Paquete de 4 vinos",
+  description: "Selección de 4 botellas mixtas Parvada a precio preferencial.",
+  price: 2250,
+};
+
+export type SpaReservation = {
+  masseuseId: string;
+  masseuseName: string;
+  day: string; // fecha ISO simulada
+  time: string;
+};
+
+export type FoodReservation = {
+  day: string; // fecha ISO simulada
+  mealType: MealType;
+  mealTypeLabel: string;
+  menuOptionId: string;
+  menuOptionName: string;
+  guests: number;
+};
+
+export type WineOrderBottle = {
+  bottleId: string;
+  bottleName: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+export type WineOrder = {
+  bottles: WineOrderBottle[];
+  packageQuantity: number;
+  packageUnitPrice: number;
+};
+
+export type CartItem =
+  | { id: string; serviceType: "spa"; details: SpaReservation; quantity: number; totalPrice: number }
+  | { id: string; serviceType: "comida"; details: FoodReservation; quantity: number; totalPrice: number }
+  | { id: string; serviceType: "vinos"; details: WineOrder; quantity: number; totalPrice: number };
+
 export type FareType = "estandar" | "flexible";
 
 export type FareOption = {

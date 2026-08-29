@@ -23,26 +23,38 @@ app/
   page.tsx             → Pantalla principal del huésped (home) — ruta protegida, envuelta en <ProtectedRoute>
   login/page.tsx        → Pantalla de acceso restringido
   reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago) — ruta protegida, envuelta en <ProtectedRoute>
-  pago-exitoso/page.tsx → Pantalla estática de confirmación de pago
+  servicios/
+    spa/page.tsx          → Flujo de reserva de SPA/Masajes — ruta protegida, envuelta en <ProtectedRoute>
+    comida/page.tsx        → Flujo de reserva de Comida — ruta protegida, envuelta en <ProtectedRoute>
+    vinos/page.tsx          → Flujo de compra del Paquete de Vinos — ruta protegida, envuelta en <ProtectedRoute>
+  carrito/page.tsx       → Carrito de servicios adicionales (listado, eliminar, total, pagar) — ruta protegida, envuelta en <ProtectedRoute>
+  pago-exitoso/page.tsx → Pantalla estática de confirmación de pago (reutilizada por /reservar y /carrito)
   admin/page.tsx        → Dashboard de administración (usuarios y reservaciones) — sin protección de ruta
   perfil/page.tsx       → Vista de perfil del usuario con sesión activa — protegida con su propia redirección inline
 
 components/
-  Navbar.tsx            → Barra superior (logo + Perfil/Iniciar sesión/Cerrar sesión según la sesión)
+  Navbar.tsx            → Barra superior (logo + Carrito/Perfil/Iniciar sesión/Cerrar sesión según la sesión)
   Footer.tsx            → Pie de página
   ProtectedRoute.tsx     → Envoltorio cliente que exige sesión activa; redirige a /login si no la hay
   Carousel.tsx          → Carrusel de fotos de la propiedad
   AmenitiesList.tsx      → Lista de amenidades con íconos
-  ServiceCard.tsx         → Tarjeta individual de un servicio adicional
+  ServiceCard.tsx         → Tarjeta individual de un servicio adicional, con botón "Reservar" hacia /servicios/<id>
   DateRangeSelector.tsx   → Selector de fecha de llegada/salida
   PricingOptions.tsx      → Radio buttons de tipo de tarifa
   BookingSummary.tsx      → Desglose de cobro (noches + recargo + depósito)
   UsersTable.tsx          → Tabla de usuarios invitados (dashboard admin)
   ReservationsTable.tsx   → Tabla de reservaciones (dashboard admin)
+  SpaBookingForm.tsx      → Formulario de reserva de SPA (masajista → día → hora)
+  FoodBookingForm.tsx     → Formulario de reserva de Comida (día → tiempo de comida → menú → personas)
+  WineBookingForm.tsx     → Formulario de compra de vinos (botellas individuales + paquete de 4)
+  AddedToCartBanner.tsx   → Banner de confirmación ("agregado al carrito" + link a /carrito), compartido por los 3 formularios
+  CartView.tsx            → Contenido interactivo de /carrito (listado, eliminar, total, pagar)
+  CartItemRow.tsx          → Fila individual del carrito, formatea los detalles según el tipo de servicio
 
 lib/
-  mock-data.ts          → TODOS los datos de prueba: fotos, amenidades, servicios, precios, usuarios y reservaciones
+  mock-data.ts          → TODOS los datos de prueba: fotos, amenidades, servicios, precios, usuarios, reservaciones y disponibilidad de spa/comida/vinos
   AuthContext.tsx       → Estado global de sesión mockeada (Context + localStorage)
+  CartContext.tsx       → Estado global del carrito de servicios adicionales (Context + localStorage)
 ```
 
 Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `components/`. Si es solo texto o números de ejemplo, vive en `lib/mock-data.ts`.**
@@ -57,6 +69,8 @@ Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `c
 - **Tarjetas de "Servicios Adicionales"** (Comida, SPA/Masajes, Paquete de Vinos): el diseño de cada tarjeta está en [components/ServiceCard.tsx](components/ServiceCard.tsx), que usa `<Image>` de `next/image` (contenedor `relative h-48` + `object-cover` + `sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"`, acorde a la grilla `sm:grid-cols-2 lg:grid-cols-3` en la que se muestran) en vez del placeholder gris. El contenido (título, descripción, precio) se edita en `lib/mock-data.ts`, no en el componente. Cada servicio en `ADDITIONAL_SERVICES` requiere también un campo `image` (ruta pública a la fotografía en `public/images/`, ej. `/images/servicio_comida_holder.jpg`) — sin este campo, `ServiceCard` no puede renderizar la tarjeta.
 - **Amenidades**: el diseño está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx), que ahora itera primero por **categoría** (`AmenityCategory`, subtítulo tipo Airbnb) y luego por cada amenidad dentro de ella, mostrando su ícono `.svg` (tag `<img>` nativo, no `next/image`, porque el optimizador de imágenes de Next.js no sirve SVG sin habilitar `dangerouslyAllowSVG` en `next.config.ts`) seguido del texto. El contenido (categorías, amenidades y la ruta `url` de cada ícono) se edita en `lib/mock-data.ts`; los archivos `.svg` reales viven en `public/icons/amenities/<categoría>/`.
 - **Tablas del dashboard de administración**: el diseño de la tabla de usuarios está en [components/UsersTable.tsx](components/UsersTable.tsx) y el de reservaciones en [components/ReservationsTable.tsx](components/ReservationsTable.tsx). El contenido de ambas tablas se edita en `lib/mock-data.ts`, igual que el resto del sitio.
+- **Flujos de reserva de servicios adicionales** (SPA, Comida, Vinos): cada uno vive en su propio componente cliente — [components/SpaBookingForm.tsx](components/SpaBookingForm.tsx), [components/FoodBookingForm.tsx](components/FoodBookingForm.tsx), [components/WineBookingForm.tsx](components/WineBookingForm.tsx) — montado en su página bajo `app/servicios/<id>/page.tsx`. Todos calculan su propio precio y llaman a `addToCart()` (ver `lib/CartContext.tsx` más abajo) al enviar el formulario; el botón "Reservar" de cada `ServiceCard` en el Home enlaza directamente a `/servicios/<id>` porque el `id` de `ADDITIONAL_SERVICES` coincide con el nombre de la carpeta de ruta.
+- **Carrito** ([app/carrito/page.tsx](app/carrito/page.tsx)): la interactividad vive en [components/CartView.tsx](components/CartView.tsx) (listado vía [components/CartItemRow.tsx](components/CartItemRow.tsx), eliminar item, total y botón "Pagar servicios"), mientras que la página en sí sigue siendo un Server Component envuelto en `<ProtectedRoute>`, igual que el resto de rutas protegidas.
 
 ## 5. Dónde están los datos mockeados (para editar antes de la demo)
 
@@ -67,6 +81,10 @@ Todo está en un único archivo: **[lib/mock-data.ts](lib/mock-data.ts)**. Ahí 
 | Fotos del carrusel (cantidad, etiquetas y `url` del archivo en `public/images/`) | `PROPERTY_PHOTOS` |
 | Amenidades de la casa (categorías y, dentro de cada una, sus amenidades con `url` al ícono `.svg`) | `AMENITIES` |
 | Servicios adicionales (Comida, SPA, Vinos), incluyendo la `image` de cada uno | `ADDITIONAL_SERVICES` |
+| Masajistas de SPA (nombre, días y horarios disponibles simulados) y precio de sesión | `SPA_MASSEUSES`, `SPA_SESSION_PRICE` |
+| Tiempos de comida y menús disponibles por tiempo (con precio por persona) | `MEAL_TYPES`, `FOOD_MENU_OPTIONS` |
+| Días disponibles simulados para reservar comida | `FOOD_AVAILABLE_DATES` |
+| Botellas de vino individuales disponibles y el paquete de 4 vinos | `WINE_BOTTLES`, `WINE_PACKAGE` |
 | Tipos de tarifa (Estándar / Flexible) y su recargo | `FARE_OPTIONS` |
 | Precio por noche y depósito de garantía | `PRICING_CONFIG` |
 | Usuarios del panel de administración (nombre, email, rol, estado) | `mockUsers` |
@@ -78,7 +96,9 @@ Para agregar un nuevo usuario o una nueva reservación de prueba, basta con agre
 
 **Estructura de `AMENITIES`**: dejó de ser una lista plana de amenidades para ser un arreglo de categorías (`AmenityCategory[]`). Cada categoría tiene `id`, `category` (el subtítulo visible, ej. "Cocina y comedor") y `items: Amenity[]`; cada `Amenity` tiene `id`, `label` y `url` (ruta pública al ícono `.svg`, ej. `/icons/amenities/cocina/fridge.svg`). Para agregar una amenidad nueva, primero colocar su ícono en `public/icons/amenities/<categoría>/` y luego referenciarlo desde `url` en el `items` correspondiente — si dos amenidades no tienen un ícono dedicado (ej. "congelador" y "refrigerador"), es válido que compartan el mismo archivo `.svg`.
 
-**Íconos del sistema** ([public/icons/system/](public/icons/system/)): íconos `.svg` usados en la UI de navegación (perfil, cerrar sesión, logo, carrito). [components/Navbar.tsx](components/Navbar.tsx) los usa como `<img>` nativo en vez de texto plano para los botones "Perfil" y "Cerrar sesión"; el texto se conserva accesible con `sr-only` para lectores de pantalla.
+**Íconos del sistema** ([public/icons/system/](public/icons/system/)): íconos `.svg` usados en la UI de navegación (perfil, cerrar sesión, logo, carrito). [components/Navbar.tsx](components/Navbar.tsx) los usa como `<img>` nativo en vez de texto plano para los botones "Carrito", "Perfil" y "Cerrar sesión"; el texto se conserva accesible con `sr-only` para lectores de pantalla.
+
+**Fechas simuladas de disponibilidad**: `SPA_MASSEUSES[].availableDays` y `FOOD_AVAILABLE_DATES` son fechas ISO (ej. `"2026-09-04"`), no un rango dinámico — para la demo, alargar o mover estas fechas basta con editar los arreglos directamente en `lib/mock-data.ts`. Se muestran en la UI ya formateadas (ej. "04 sept.") a través de la función `formatSimulatedDate(isoDate)`, exportada también desde `mock-data.ts`.
 
 ## 6. Sistema de roles simulado, sesión y panel de administración
 
@@ -106,7 +126,7 @@ El prototipo distingue dos roles: **Huésped** (`guest`) y **Administrador** (`a
 
 **Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): muestra Nombre, Correo y Rol del usuario en sesión, en dos tarjetas (avatar + ficha de datos) con la paleta `neutral`. Si no hay ningún usuario en sesión, redirige automáticamente a `/login`.
 
-**Rutas protegidas por sesión (`ProtectedRoute`)**: el Home (`/`) y el flujo de reservación (`/reservar`) ahora exigen sesión activa. La protección se implementa con [components/ProtectedRoute.tsx](components/ProtectedRoute.tsx), un componente `"use client"` que envuelve el contenido de la página: consume `useAuth()`, y si `!isLoading && !user` redirige a `/login`; mientras `isLoading` es `true` muestra un estado de carga breve, y si hay sesión renderiza `children` normalmente. Esto permite que `app/page.tsx` siga siendo un Server Component — solo el wrapper `<ProtectedRoute>` es cliente, no toda la página. `/admin` sigue sin este guard (ver sección 7).
+**Rutas protegidas por sesión (`ProtectedRoute`)**: el Home (`/`) y el flujo de reservación (`/reservar`) ahora exigen sesión activa. La protección se implementa con [components/ProtectedRoute.tsx](components/ProtectedRoute.tsx), un componente `"use client"` que envuelve el contenido de la página: consume `useAuth()`, y si `!isLoading && !user` redirige a `/login`; mientras `isLoading` es `true` muestra un estado de carga breve, y si hay sesión renderiza `children` normalmente. Esto permite que `app/page.tsx` siga siendo un Server Component — solo el wrapper `<ProtectedRoute>` es cliente, no toda la página. `/admin` sigue sin este guard (ver sección 8).
 
 **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)):
 
@@ -114,7 +134,28 @@ El prototipo distingue dos roles: **Huésped** (`guest`) y **Administrador** (`a
 - **Sección "Reservaciones"**: tabla con los datos de `mockReservations` usando [components/ReservationsTable.tsx](components/ReservationsTable.tsx), filtrando en la propia página (`app/admin/page.tsx`) para no mostrar las reservaciones con estado `pasada`.
 - Sigue sin tener ningún guard de ruta: es accesible por URL directa sin pasar por `/login`, incluso si `useAuth()` reporta que no hay sesión o que el rol no es `admin`.
 
-## 7. Qué falta conectar al backend (próximos sprints)
+## 7. Carrito de servicios adicionales
+
+Además de la reservación de la estadía (`/reservar`), el prototipo tiene un flujo independiente para agregar servicios adicionales (SPA/Masajes, Comida, Paquete de Vinos) a un carrito y "pagarlos" por separado, manejado por [lib/CartContext.tsx](lib/CartContext.tsx):
+
+- `CartProvider` envuelve la app en [app/layout.tsx](app/layout.tsx) (anidado dentro de `AuthProvider`) y expone el carrito a través de un React Context.
+- El carrito se guarda en `localStorage` (clave `casabrava_cart`), igual que la sesión: **persiste al recargar la página**.
+- El hook `useCart()` da acceso a `items`, `isLoading`, `addToCart(item)`, `removeFromCart(id)`, `clearCart()`, `totalPrice` y `totalItems` desde cualquier componente cliente.
+- Cada `CartItem` es una unión discriminada por `serviceType` (`"spa" | "comida" | "vinos"`), con los detalles específicos tipados como `SpaReservation`, `FoodReservation` o `WineOrder` (todos en `lib/mock-data.ts`).
+
+**Cómo probar el flujo completo:**
+
+1. Desde el Home (`/`), dar clic en "Reservar" dentro de cualquier tarjeta de la sección "Servicios adicionales" → navega a `/servicios/spa`, `/servicios/comida` o `/servicios/vinos`.
+2. **SPA**: elegir una masajista → aparece el selector de día (fechas simuladas de esa masajista) → al elegir día aparece el selector de hora. Completar los tres pasos y dar clic en "Agregar al carrito".
+3. **Comida**: elegir día, tiempo de comida (Desayuno/Almuerzo/Cena) y tipo de menú (el precio es por persona); ajustar el número de personas con el contador y dar clic en "Agregar al carrito".
+4. **Vinos**: sumar botellas individuales con los contadores `+`/`−` y/o el contador del "Paquete de 4 vinos"; el total del pedido se recalcula en vivo. Dar clic en "Agregar al carrito".
+5. En cualquiera de los tres flujos, tras agregar aparece un banner de confirmación verde con un link "Ver carrito" ([components/AddedToCartBanner.tsx](components/AddedToCartBanner.tsx)) — el formulario permanece visible para seguir agregando servicios sin perder el progreso.
+6. El ícono de carrito en el Navbar ([components/Navbar.tsx](components/Navbar.tsx)) muestra un badge con la cantidad total de items (`useCart().totalItems`) y enlaza a `/carrito`.
+7. En [/carrito](app/carrito/page.tsx): revisar el listado (cada fila formatea sus propios detalles según `serviceType`, ver [components/CartItemRow.tsx](components/CartItemRow.tsx)), eliminar algún item con "Eliminar" y confirmar que el total se recalcula.
+8. Dar clic en "Pagar servicios" → vacía el carrito (`clearCart()`) y redirige a `/pago-exitoso`, sin procesar ningún cobro real (mismo patrón que el botón "Proceder al pago" de `/reservar`).
+9. Recargar el navegador en cualquier punto del flujo: el carrito y sus items persisten porque viven en `localStorage`.
+
+## 8. Qué falta conectar al backend (próximos sprints)
 
 Esto es un prototipo de interfaz, así que lo siguiente **todavía no funciona de verdad** y queda pendiente:
 
@@ -125,5 +166,7 @@ Esto es un prototipo de interfaz, así que lo siguiente **todavía no funciona d
 - **Pago** (botón "Proceder al pago"): redirige directo a la pantalla de éxito sin cobrar nada. Falta integrar un proveedor de pagos real (planeado: Stripe).
 - **Persistencia de la reservación**: no se guarda en ningún lado; al recargar la página se pierde todo. Falta una base de datos (planeado: Supabase).
 - **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)): las tablas de usuarios y reservaciones son de solo lectura sobre datos mockeados; el botón "Editar" no hace nada. Falta conectar a Supabase para leer/escribir usuarios y reservaciones reales.
+- **Disponibilidad de SPA/Comida**: los días y horarios de `SPA_MASSEUSES` y `FOOD_AVAILABLE_DATES` son listas fijas en `mock-data.ts`, no un calendario real — no valida que un horario ya elegido por otro huésped deje de estar disponible.
+- **Carrito** ([lib/CartContext.tsx](lib/CartContext.tsx)): igual que la sesión mockeada, vive en `localStorage` del navegador sin backend que lo respalde. Falta persistirlo en Supabase (asociado al huésped) y, al "Pagar servicios" en `/carrito`, integrar Stripe en vez de solo vaciar el carrito y redirigir.
 
 Para más detalle técnico sobre el stack y las convenciones de código, ver [CLAUDE.md](CLAUDE.md).

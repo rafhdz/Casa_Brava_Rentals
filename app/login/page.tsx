@@ -24,7 +24,9 @@ export default function LoginPage() {
       setEmailError("El correo electrónico es obligatorio.");
       hasError = true;
     } else if (!EMAIL_REGEX.test(trimmedEmail)) {
-      setEmailError("Ingresa un correo electrónico válido (ej. nombre@dominio.com).");
+      setEmailError(
+        "Ingresa un correo electrónico válido (ej. nombre@dominio.com).",
+      );
       hasError = true;
     } else {
       setEmailError(null);
@@ -49,15 +51,23 @@ export default function LoginPage() {
       <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 text-base font-semibold text-white">
         CB
       </span>
-      <h1 className="mt-4 text-2xl font-semibold text-neutral-900">Acceso restringido</h1>
+      <h1 className="mt-4 text-2xl font-semibold text-neutral-900">
+        Acceso restringido
+      </h1>
       <p className="mt-2 text-center text-sm text-neutral-500">
-        Casa Brava Rentals es de acceso exclusivo por invitación. Ingresa con las credenciales
-        que te compartimos para continuar.
+        Casa Brava Rentals es de acceso exclusivo por invitación. Ingresa con
+        las credenciales que te compartimos para continuar.
       </p>
 
-      <form onSubmit={handleSubmit} noValidate className="mt-8 flex w-full flex-col gap-4">
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="mt-8 flex w-full flex-col gap-4"
+      >
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-neutral-700">Correo electrónico</span>
+          <span className="text-sm font-medium text-neutral-700">
+            Correo electrónico
+          </span>
           <input
             type="email"
             value={email}
@@ -76,7 +86,9 @@ export default function LoginPage() {
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-neutral-700">Contraseña</span>
+          <span className="text-sm font-medium text-neutral-700">
+            Contraseña
+          </span>
           <input
             type="password"
             value={password}
@@ -91,7 +103,9 @@ export default function LoginPage() {
                 : "border-neutral-300 focus:border-neutral-900"
             }`}
           />
-          {passwordError && <p className="text-xs text-red-600">{passwordError}</p>}
+          {passwordError && (
+            <p className="text-xs text-red-600">{passwordError}</p>
+          )}
         </label>
 
         <button
@@ -107,7 +121,8 @@ export default function LoginPage() {
       </p>
 
       <p className="mt-6 text-center text-xs text-neutral-400">
-        ¿No tienes invitación? Contacta directamente a la administración de la propiedad.
+        ¿No tienes invitación? Contacta directamente a la administración de la
+        propiedad.
       </p>
     </div>
   );
