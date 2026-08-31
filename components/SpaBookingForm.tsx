@@ -5,7 +5,7 @@ import { format, parseISO } from "date-fns";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import { SPA_MASSEUSES, SPA_SESSION_PRICE, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
 import AddedToCartBanner from "@/components/AddedToCartBanner";
-import Calendar from "@/components/Calendar";
+import Calendar, { AVAILABILITY_MODIFIERS_CLASS_NAMES } from "@/components/Calendar";
 
 export default function SpaBookingForm() {
   const { addToCart } = useCart();
@@ -16,6 +16,10 @@ export default function SpaBookingForm() {
 
   const masseuse = SPA_MASSEUSES.find((m) => m.id === masseuseId) ?? null;
   const canAdd = masseuse !== null && day !== "" && time !== "";
+
+  function isDayAvailable(date: Date): boolean {
+    return masseuse !== null && masseuse.availableDays.includes(format(date, "yyyy-MM-dd"));
+  }
 
   function handleSelectMasseuse(id: string) {
     setMasseuseId(id);
@@ -83,7 +87,11 @@ export default function SpaBookingForm() {
               mode="single"
               selected={day ? parseISO(day) : undefined}
               onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
-              disabled={(date) => !masseuse.availableDays.includes(format(date, "yyyy-MM-dd"))}
+              disabled={(date) => !isDayAvailable(date)}
+              modifiers={{
+                available: (date) => isDayAvailable(date) && format(date, "yyyy-MM-dd") !== day,
+              }}
+              modifiersClassNames={AVAILABILITY_MODIFIERS_CLASS_NAMES}
               defaultMonth={parseISO(masseuse.availableDays[0])}
             />
           </div>
