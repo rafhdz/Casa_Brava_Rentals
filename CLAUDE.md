@@ -12,6 +12,7 @@ Sistema de reservaciones para una casa privada de renta ("Casa Brava Rentals"), 
 - **React 19**.
 - **TypeScript** en modo `strict`. No usar `any` salvo casos justificados.
 - **Tailwind CSS v4** (configuración basada en CSS vía `@import "tailwindcss"` en [app/globals.css](app/globals.css); no existe `tailwind.config.js`, los tokens se definen con `@theme`).
+- **Librerías headless permitidas** (ver detalle en "Qué NO hacer"): `lucide-react` (íconos del sistema), `react-day-picker` + `date-fns` (calendarios). Ninguna trae CSS propio importado — se estilizan 100% con Tailwind vía sus props `classNames`/`className`.
 - Alias de imports: `@/*` apunta a la raíz del proyecto (ver `tsconfig.json`). Usar siempre `@/components/...`, `@/lib/...`, nunca rutas relativas largas (`../../../`).
 
 ## Convenciones de nomenclatura
@@ -26,7 +27,8 @@ Sistema de reservaciones para una casa privada de renta ("Casa Brava Rentals"), 
 
 - **Mobile-first**: escribir las clases base pensando en mobile y usar prefijos (`sm:`, `md:`, `lg:`) para escalar hacia arriba. Nunca partir de un layout desktop y luego "achicar".
 - Paleta minimalista en escala de grises (neutral-*) con acentos en negro (`neutral-900`) para botones primarios. Mantener esa consistencia al agregar nuevas vistas.
-- Íconos `.svg` estáticos servidos desde `public/icons/` (amenidades en `public/icons/amenities/<categoría>/`, íconos de sistema en `public/icons/system/`) se renderizan con el tag `<img>` nativo, no con `next/image` — el optimizador de imágenes de Next.js rechaza archivos `.svg` a menos que se habilite `dangerouslyAllowSVG` en `next.config.ts`, y no se ha activado esa opción. `next/image` sigue siendo el estándar para fotografías (`.jpeg`/`.png`) como en `Carousel.tsx`.
+- **Íconos del sistema** (Navbar, `BackButton`, controles del carrusel, botones de UI en general) usan componentes de **`lucide-react`** (ej. `<User className="h-5 w-5" />`), no archivos `.svg` estáticos. Los `.svg` de `public/icons/system/` quedan obsoletos para este propósito — no se borran del repo por si algún flujo futuro los necesita, pero no se referencian desde componentes nuevos.
+- **Íconos de amenidades** (la lista de amenidades de la casa en `public/icons/amenities/<categoría>/`) **siguen usando el formato estático actual**: tag `<img>` nativo apuntando al `.svg`, no `lucide-react` ni `next/image`. Esto es intencional — son ilustraciones curadas y personalizadas de la propiedad (íconos de cocina, alberca, etc.), no íconos genéricos de interfaz, y `lucide-react` no tiene equivalentes para la mayoría de ellas. El optimizador de imágenes de Next.js además rechaza `.svg` a menos que se habilite `dangerouslyAllowSVG` en `next.config.ts`, y no se ha activado esa opción — por eso siguen siendo `<img>` y no `next/image`. `next/image` sigue siendo el estándar para fotografías (`.jpeg`/`.png`) como en `Carousel.tsx`.
 - Toda vez que se use `<Image fill>` (contenedor con tamaño fijo/relativo, foto que llena el espacio), agregar siempre la prop `sizes` con el ancho real que ocupará la imagen en cada breakpoint (ej. `sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"` para una grilla `sm:grid-cols-2 lg:grid-cols-3`, o `sizes="(min-width: 768px) 700px, 100vw"` para un carrusel a ancho de contenedor fijo). Sin `sizes`, Next.js emite una advertencia de rendimiento y puede descargar una imagen más pesada de lo necesario. Reservar `priority` únicamente para la imagen que aparece arriba del fold en la carga inicial (ej. la primera foto del carrusel en `app/page.tsx`), no para imágenes que aparecen más abajo (como las de `ServiceCard.tsx`).
 - Componentes reutilizables van en `components/`; las páginas (`app/**/page.tsx`) solo componen esos componentes y manejan estado/routing, no deberían tener bloques grandes de markup propios.
 - Los formularios y flujos con estado (login, reservación) son Client Components (`"use client"`) porque dependen de `useState`/`useRouter`. Las páginas puramente de presentación (home, pago exitoso) se mantienen como Server Components cuando sea posible.
@@ -74,12 +76,13 @@ El ESLint de este proyecto (via `eslint-config-next`) incluye una regla estricta
 
 - **Supabase**: Auth (reemplazar el login mockeado por sesiones reales) y Base de Datos (huéspedes, reservaciones, disponibilidad de fechas, servicios adicionales).
 - **Stripe**: procesamiento real de pagos en el flujo de reservación (`app/reservar/page.tsx`), reemplazando la redirección directa a `/pago-exitoso` por un Stripe Checkout o Payment Intent, con confirmación por webhook antes de mostrar la página de éxito.
+- **`sonner`**: notificaciones tipo toast globales (ej. confirmar "agregado al carrito", errores de guardado en el modal de `UsersTable.tsx`, feedback de acciones) — todavía no está instalada ni implementada; cuando se agregue, montar su `<Toaster />` en [app/layout.tsx](app/layout.tsx) junto a `AuthProvider`/`CartProvider`.
 - Al conectar backend real, mantener `lib/mock-data.ts` como referencia de la forma (shape) de los datos, pero las fuentes de verdad pasarán a ser consultas a Supabase.
 
 ## Qué NO hacer
 
 - No agregar autenticación real (verificación de contraseña contra un backend, tokens, hashing), ni llamadas a base de datos hasta que se pida explícitamente. La validación de formato en el cliente (formato de correo, campos no vacíos) sí es parte del prototipo y está implementada — no es lo mismo que autenticación real.
-- No introducir librerías de UI pesadas (component libraries completas) para este prototipo salvo que se solicite; preferir Tailwind puro y componentes propios.
+- No introducir librerías de UI pesadas (component libraries completas, con estilos monolíticos propios) para este prototipo salvo que se solicite; preferir Tailwind puro y componentes propios. **Sí están permitidas** las siguientes herramientas por ser *headless* (sin estilos propios, se skinean 100% con Tailwind), de código abierto y costo $0: **`shadcn/ui`** (basada en Radix UI — componentes accesibles sin estilo propio), **`react-day-picker`** (calendarios, ver `components/Calendar.tsx`), **`sonner`** (notificaciones tipo toast — aún no instalada, ver "Integración futura planeada") y **`lucide-react`** (íconos del sistema, ver regla de íconos arriba). No agregar ninguna otra librería de UI (headless o no) sin que se pida explícitamente — esta lista es exhaustiva, no un precedente abierto.
 - No romper la estructura de `lib/mock-data.ts` sin actualizar también `DOCUMENTATION.md`.
 
 ## Regla permanente: mantenimiento de documentación

@@ -1,3 +1,10 @@
+"use client";
+
+import { format, parseISO, startOfToday } from "date-fns";
+import { es } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
+import Calendar from "@/components/Calendar";
+
 type DateRangeSelectorProps = {
   checkIn: string;
   checkOut: string;
@@ -5,37 +12,53 @@ type DateRangeSelectorProps = {
   onCheckOutChange: (value: string) => void;
 };
 
+function formatLong(isoDate: string): string {
+  return format(parseISO(isoDate), "d 'de' MMMM, yyyy", { locale: es });
+}
+
 export default function DateRangeSelector({
   checkIn,
   checkOut,
   onCheckInChange,
   onCheckOutChange,
 }: DateRangeSelectorProps) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = startOfToday();
+  const selectedRange: DateRange | undefined = checkIn
+    ? { from: parseISO(checkIn), to: checkOut ? parseISO(checkOut) : undefined }
+    : undefined;
+
+  function handleSelect(range: DateRange | undefined) {
+    onCheckInChange(range?.from ? format(range.from, "yyyy-MM-dd") : "");
+    onCheckOutChange(range?.to ? format(range.to, "yyyy-MM-dd") : "");
+  }
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-neutral-700">Fecha de llegada</span>
-        <input
-          type="date"
-          min={today}
-          value={checkIn}
-          onChange={(e) => onCheckInChange(e.target.value)}
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 transition-all duration-200 ease-in-out focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/15"
-        />
-      </label>
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <span className="block text-xs font-medium text-neutral-500">Fecha de llegada</span>
+          <span className="block text-sm font-medium text-neutral-900">
+            {checkIn ? formatLong(checkIn) : "Selecciona en el calendario"}
+          </span>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <span className="block text-xs font-medium text-neutral-500">Fecha de salida</span>
+          <span className="block text-sm font-medium text-neutral-900">
+            {checkOut ? formatLong(checkOut) : "Selecciona en el calendario"}
+          </span>
+        </div>
+      </div>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-neutral-700">Fecha de salida</span>
-        <input
-          type="date"
-          min={checkIn || today}
-          value={checkOut}
-          onChange={(e) => onCheckOutChange(e.target.value)}
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 transition-all duration-200 ease-in-out focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/15"
+      <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+        <Calendar
+          mode="range"
+          selected={selectedRange}
+          onSelect={handleSelect}
+          disabled={{ before: today }}
+          defaultMonth={selectedRange?.from ?? today}
+          numberOfMonths={1}
         />
-      </label>
+      </div>
     </div>
   );
 }

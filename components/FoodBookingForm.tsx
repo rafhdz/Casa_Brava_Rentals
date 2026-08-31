@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { format, parseISO } from "date-fns";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import {
   FOOD_AVAILABLE_DATES,
@@ -11,6 +12,7 @@ import {
   type MealType,
 } from "@/lib/mock-data";
 import AddedToCartBanner from "@/components/AddedToCartBanner";
+import Calendar from "@/components/Calendar";
 
 export default function FoodBookingForm() {
   const { addToCart } = useCart();
@@ -71,22 +73,21 @@ export default function FoodBookingForm() {
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-neutral-900">1. Elige el día</h2>
-        <div className="flex flex-wrap gap-2">
-          {FOOD_AVAILABLE_DATES.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => handleSelectDay(d)}
-              className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ease-in-out active:scale-95 ${
-                day === d
-                  ? "border-neutral-900 bg-neutral-900 text-white"
-                  : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
-              }`}
-            >
-              {formatSimulatedDate(d)}
-            </button>
-          ))}
+        <p className="text-sm text-neutral-500">Solo los días con servicio de cocina disponible están habilitados.</p>
+        <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+          <Calendar
+            mode="single"
+            selected={day ? parseISO(day) : undefined}
+            onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
+            disabled={(date) => !FOOD_AVAILABLE_DATES.includes(format(date, "yyyy-MM-dd"))}
+            defaultMonth={parseISO(FOOD_AVAILABLE_DATES[0])}
+          />
         </div>
+        {day && (
+          <p className="text-sm text-neutral-600">
+            Día seleccionado: <span className="font-medium text-neutral-900">{formatSimulatedDate(day)}</span>
+          </p>
+        )}
       </section>
 
       <section className="flex flex-col gap-3">

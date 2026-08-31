@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { format, parseISO } from "date-fns";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import { SPA_MASSEUSES, SPA_SESSION_PRICE, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
 import AddedToCartBanner from "@/components/AddedToCartBanner";
+import Calendar from "@/components/Calendar";
 
 export default function SpaBookingForm() {
   const { addToCart } = useCart();
@@ -72,22 +74,24 @@ export default function SpaBookingForm() {
       {masseuse && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold text-neutral-900">2. Elige el día</h2>
-          <div className="flex flex-wrap gap-2">
-            {masseuse.availableDays.map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => handleSelectDay(d)}
-                className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ease-in-out active:scale-95 ${
-                  day === d
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
-                }`}
-              >
-                {formatSimulatedDate(d)}
-              </button>
-            ))}
+          <p className="text-sm text-neutral-500">
+            Solo los días disponibles de {masseuse.name} están habilitados en el calendario.
+          </p>
+          <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <Calendar
+              key={masseuse.id}
+              mode="single"
+              selected={day ? parseISO(day) : undefined}
+              onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
+              disabled={(date) => !masseuse.availableDays.includes(format(date, "yyyy-MM-dd"))}
+              defaultMonth={parseISO(masseuse.availableDays[0])}
+            />
           </div>
+          {day && (
+            <p className="text-sm text-neutral-600">
+              Día seleccionado: <span className="font-medium text-neutral-900">{formatSimulatedDate(day)}</span>
+            </p>
+          )}
         </section>
       )}
 

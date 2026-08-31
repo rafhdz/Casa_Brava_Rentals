@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { LogOut, ShoppingCart, User } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { useCart } from "@/lib/CartContext";
 
@@ -34,8 +35,7 @@ export default function Navbar() {
                 title="Carrito"
                 className="relative flex h-10 w-10 items-center justify-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
-                <img src="/icons/system/cart.svg" alt="" aria-hidden className="h-5 w-5" />
+                <ShoppingCart className="h-5 w-5" strokeWidth={1.75} aria-hidden />
                 <span className="sr-only">Carrito</span>
                 {totalItems > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-semibold text-white">
@@ -49,8 +49,7 @@ export default function Navbar() {
               title="Perfil"
               className="flex h-10 w-10 items-center justify-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
-              <img src="/icons/system/profile.svg" alt="" aria-hidden className="h-5 w-5" />
+              <User className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               <span className="sr-only">Perfil</span>
             </Link>
             <button
@@ -58,8 +57,7 @@ export default function Navbar() {
               title="Cerrar sesión"
               className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
-              <img src="/icons/system/logout.svg" alt="" aria-hidden className="h-5 w-5" />
+              <LogOut className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               <span className="sr-only">Cerrar sesión</span>
             </button>
           </div>

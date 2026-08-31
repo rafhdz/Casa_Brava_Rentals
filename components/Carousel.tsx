@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import type { Photo } from "@/lib/mock-data";
 
 const AUTO_ROTATE_INTERVAL_MS = 4000;
@@ -152,7 +153,7 @@ export default function Carousel({ photos }: { photos: Photo[] }) {
           aria-label="Foto anterior"
           className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/80 text-neutral-700 shadow transition-all duration-200 ease-in-out hover:scale-110 hover:bg-white active:scale-95"
         >
-          ‹
+          <ChevronLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
         <button
           type="button"
@@ -161,7 +162,7 @@ export default function Carousel({ photos }: { photos: Photo[] }) {
           aria-label="Foto siguiente"
           className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/80 text-neutral-700 shadow transition-all duration-200 ease-in-out hover:scale-110 hover:bg-white active:scale-95"
         >
-          ›
+          <ChevronRight className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
 
         <div
@@ -176,18 +177,18 @@ export default function Carousel({ photos }: { photos: Photo[] }) {
             onClick={zoomIn}
             disabled={zoom >= ZOOM_MAX}
             aria-label="Acercar"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900/70 text-lg font-medium text-white shadow transition-all duration-200 ease-in-out hover:scale-110 hover:bg-neutral-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900/70 text-white shadow transition-all duration-200 ease-in-out hover:scale-110 hover:bg-neutral-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
           >
-            +
+            <ZoomIn className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
           <button
             type="button"
             onClick={zoomOut}
             disabled={zoom <= ZOOM_MIN}
             aria-label="Alejar"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900/70 text-lg font-medium text-white shadow transition-all duration-200 ease-in-out hover:scale-110 hover:bg-neutral-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900/70 text-white shadow transition-all duration-200 ease-in-out hover:scale-110 hover:bg-neutral-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
           >
-            −
+            <ZoomOut className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
         </div>
       </div>
