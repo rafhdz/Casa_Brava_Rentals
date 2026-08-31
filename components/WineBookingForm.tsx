@@ -79,7 +79,7 @@ export default function WineBookingForm() {
                 <button
                   type="button"
                   onClick={() => handleBottleQuantityChange(bottle.id, -1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-all duration-200 ease-in-out hover:border-neutral-900 hover:text-neutral-900 active:scale-90"
                 >
                   −
                 </button>
@@ -89,7 +89,7 @@ export default function WineBookingForm() {
                 <button
                   type="button"
                   onClick={() => handleBottleQuantityChange(bottle.id, 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-all duration-200 ease-in-out hover:border-neutral-900 hover:text-neutral-900 active:scale-90"
                 >
                   +
                 </button>
@@ -113,7 +113,7 @@ export default function WineBookingForm() {
             <button
               type="button"
               onClick={() => handlePackageQuantityChange(-1)}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-all duration-200 ease-in-out hover:border-neutral-900 hover:text-neutral-900 active:scale-90"
             >
               −
             </button>
@@ -121,7 +121,7 @@ export default function WineBookingForm() {
             <button
               type="button"
               onClick={() => handlePackageQuantityChange(1)}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-300 text-neutral-700 transition-all duration-200 ease-in-out hover:border-neutral-900 hover:text-neutral-900 active:scale-90"
             >
               +
             </button>
@@ -139,7 +139,7 @@ export default function WineBookingForm() {
         type="button"
         disabled={!canAdd}
         onClick={handleAddToCart}
-        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-colors enabled:hover:bg-neutral-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         Agregar al carrito
       </button>

@@ -22,7 +22,7 @@ export default function DateRangeSelector({
           min={today}
           value={checkIn}
           onChange={(e) => onCheckInChange(e.target.value)}
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-none"
+          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 transition-all duration-200 ease-in-out focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/15"
         />
       </label>
 
@@ -33,7 +33,7 @@ export default function DateRangeSelector({
           min={checkIn || today}
           value={checkOut}
           onChange={(e) => onCheckOutChange(e.target.value)}
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-none"
+          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 transition-all duration-200 ease-in-out focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/15"
         />
       </label>
     </div>

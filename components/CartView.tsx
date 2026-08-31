@@ -24,7 +24,7 @@ export default function CartView() {
         <p className="text-sm text-neutral-500">Tu carrito está vacío.</p>
         <Link
           href="/"
-          className="rounded-full bg-neutral-900 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-neutral-700"
+          className="rounded-full bg-neutral-900 px-6 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
         >
           Explorar servicios
         </Link>
@@ -48,7 +48,7 @@ export default function CartView() {
       <button
         type="button"
         onClick={handleCheckout}
-        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-neutral-700"
+        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
       >
         Pagar servicios
       </button>

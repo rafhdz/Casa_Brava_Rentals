@@ -6,6 +6,7 @@ import DateRangeSelector from "@/components/DateRangeSelector";
 import PricingOptions from "@/components/PricingOptions";
 import BookingSummary from "@/components/BookingSummary";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import BackButton from "@/components/BackButton";
 import { FARE_OPTIONS, PRICING_CONFIG, type FareType } from "@/lib/mock-data";
 
 function calculateNights(checkIn: string, checkOut: string): number {
@@ -34,6 +35,7 @@ export default function ReservarPage() {
   return (
     <ProtectedRoute>
       <div className="mx-auto flex max-w-3xl flex-col gap-10 px-4 py-10 sm:px-6">
+        <BackButton />
         <div>
           <h1 className="text-2xl font-semibold text-neutral-900">Reservar tu estadía</h1>
           <p className="mt-1 text-sm text-neutral-500">
@@ -76,7 +78,7 @@ export default function ReservarPage() {
           type="button"
           disabled={!canProceed}
           onClick={handleCheckout}
-          className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-colors enabled:hover:bg-neutral-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+          className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-300"
         >
           Proceder al pago
         </button>

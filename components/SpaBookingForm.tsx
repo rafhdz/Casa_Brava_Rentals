@@ -57,7 +57,7 @@ export default function SpaBookingForm() {
               key={m.id}
               type="button"
               onClick={() => handleSelectMasseuse(m.id)}
-              className={`rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors ${
+              className={`rounded-xl border px-4 py-3 text-left text-sm font-medium transition-all duration-200 ease-in-out active:scale-95 ${
                 masseuseId === m.id
                   ? "border-neutral-900 bg-neutral-900 text-white"
                   : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
@@ -78,7 +78,7 @@ export default function SpaBookingForm() {
                 key={d}
                 type="button"
                 onClick={() => handleSelectDay(d)}
-                className={`rounded-full border px-4 py-2 text-sm transition-colors ${
+                className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ease-in-out active:scale-95 ${
                   day === d
                     ? "border-neutral-900 bg-neutral-900 text-white"
                     : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
@@ -100,7 +100,7 @@ export default function SpaBookingForm() {
                 key={t}
                 type="button"
                 onClick={() => handleSelectTime(t)}
-                className={`rounded-full border px-4 py-2 text-sm transition-colors ${
+                className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ease-in-out active:scale-95 ${
                   time === t
                     ? "border-neutral-900 bg-neutral-900 text-white"
                     : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
@@ -119,7 +119,7 @@ export default function SpaBookingForm() {
         type="button"
         disabled={!canAdd}
         onClick={handleAddToCart}
-        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-colors enabled:hover:bg-neutral-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         Agregar al carrito
       </button>

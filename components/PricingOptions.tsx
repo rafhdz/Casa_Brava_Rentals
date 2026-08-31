@@ -12,7 +12,7 @@ export default function PricingOptions({ options, selected, onSelect }: PricingO
       {options.map((option) => (
         <label
           key={option.id}
-          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors ${
+          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-all duration-200 ease-in-out ${
             selected === option.id
               ? "border-neutral-900 bg-neutral-50"
               : "border-neutral-200 hover:border-neutral-400"
@@ -24,7 +24,7 @@ export default function PricingOptions({ options, selected, onSelect }: PricingO
             value={option.id}
             checked={selected === option.id}
             onChange={() => onSelect(option.id)}
-            className="mt-1 h-4 w-4 accent-neutral-900"
+            className="mt-1 h-4 w-4 accent-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/40 focus-visible:ring-offset-2"
           />
           <span>
             <span className="block text-sm font-semibold text-neutral-900">
