@@ -15,6 +15,23 @@ npm run dev
 
 Luego abrir [http://localhost:3000](http://localhost:3000).
 
+### Base de datos local (Supabase)
+
+El proyecto ya tiene inicializado el CLI de Supabase (`supabase/` en la raíz) para desarrollo local con Docker. Aún no hay tablas ni datos reales — solo la infraestructura lista y tipada; toda la UI sigue leyendo de `lib/mock-data.ts` (ver sección 8).
+
+```bash
+npx supabase start   # levanta los contenedores locales (requiere Docker corriendo)
+npx supabase stop    # los apaga
+```
+
+Al correr `supabase start` la primera vez, imprime las URLs y claves del entorno local (API, Studio, `anon key`, etc.) — esos valores van en `.env.local` (no versionado) como `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`. El cliente tipado vive en `lib/supabase.ts` (usa `createClient<Database>(...)`), y los tipos de las tablas se regeneran con:
+
+```bash
+npx supabase gen types typescript --local > lib/database.types.ts
+```
+
+Hay que volver a correr ese comando cada vez que cambie el esquema de la base de datos (nuevas tablas, columnas, etc.), para que `lib/database.types.ts` no quede desactualizado.
+
 ## 3. Estructura de carpetas
 
 ```
@@ -58,6 +75,11 @@ lib/
   mock-data.ts          → TODOS los datos de prueba: fotos, amenidades, servicios, precios, usuarios, reservaciones y disponibilidad de spa/comida/vinos
   AuthContext.tsx       → Estado global de sesión mockeada (Context + localStorage)
   CartContext.tsx       → Estado global del carrito de servicios adicionales (Context + localStorage)
+  supabase.ts           → Cliente de Supabase tipado (createClient<Database>(...)), aún sin uso en la UI
+  database.types.ts     → Tipos TypeScript generados automáticamente desde el esquema de Supabase local (no editar a mano, se regenera con el CLI)
+
+supabase/
+  config.toml           → Configuración del entorno local de Supabase (puertos, servicios habilitados, etc.), generado por `supabase init`
 ```
 
 Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `components/`. Si es solo texto o números de ejemplo, vive en `lib/mock-data.ts`.**

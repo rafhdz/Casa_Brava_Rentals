@@ -73,9 +73,19 @@ Al conectar Stripe real, el checkout de `/carrito` deberá integrarse con el mis
 
 El ESLint de este proyecto (via `eslint-config-next`) incluye una regla estricta que marca como error llamar a `setState` dentro de un `useEffect` cuando el valor viene de una lectura/computación (como `JSON.parse` de `localStorage`). La hidratación de la sesión en `AuthProvider` es un caso legítimo de sincronización con un sistema externo al montar (no un efecto derivado en cadena), así que ahí se usa un `eslint-disable-next-line` puntual con comentario explicando el motivo. No copiar ese patrón de deshabilitar la regla para otros casos sin justificarlo de la misma forma — antes de hacerlo, intentar resolver el llamado de estado fuera del efecto (ej. `useState` con inicializador perezoso) cuando el componente no requiera compatibilidad con SSR.
 
+## Infraestructura de Supabase (CLI local, sin uso todavía en la UI)
+
+El CLI de Supabase ya está inicializado para desarrollo local (carpeta `supabase/`, generada con `supabase init`), y el cliente tipado de TypeScript está listo — pero **ningún componente ni página lo usa todavía**. La UI sigue leyendo 100% de `lib/mock-data.ts`; esto es solo la infraestructura de base de datos preparada para cuando se pida conectar el backend real.
+
+- **Levantar el entorno local**: `npx supabase start` (requiere Docker corriendo) levanta Postgres, Auth, Storage, Studio, etc. en contenedores locales; `npx supabase stop` los apaga. La primera vez descarga las imágenes de Docker, lo cual puede tardar varios minutos.
+- **Variables de entorno**: `.env.local` (no versionado, ya está en `.gitignore` vía el patrón `.env*`) contiene `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`, tomadas de la salida de `supabase start`. Si se reinicia el entorno local y las claves cambian, hay que actualizar este archivo a mano.
+- **Cliente tipado** ([lib/supabase.ts](lib/supabase.ts)): exporta `supabase`, instanciado con `createClient<Database>(supabaseUrl, supabaseAnonKey)`. Lanza un error explícito si las variables de entorno no están definidas (requisito de modo `strict` de TypeScript, ya que `process.env.X` es `string | undefined`) — no usar `!` de aserción no-nula para silenciar esto.
+- **Tipos generados** ([lib/database.types.ts](lib/database.types.ts)): generados automáticamente con `npx supabase gen types typescript --local > lib/database.types.ts`. Es un archivo derivado — **no editar a mano**; regenerarlo cada vez que cambie el esquema de la base de datos (nuevas tablas/columnas/enums). Actualmente el esquema está vacío (sin tablas propias), así que el tipo `Database` solo refleja los schemas internos de Supabase.
+- No crear tablas, políticas RLS, ni conectar ningún componente/página a `supabase` hasta que se pida explícitamente — este paso fue únicamente dejar la infraestructura lista y tipada.
+
 ## Integración futura planeada (NO implementar todavía sin instrucción explícita)
 
-- **Supabase**: Auth (reemplazar el login mockeado por sesiones reales) y Base de Datos (huéspedes, reservaciones, disponibilidad de fechas, servicios adicionales).
+- **Supabase**: Auth (reemplazar el login mockeado por sesiones reales) y Base de Datos (huéspedes, reservaciones, disponibilidad de fechas, servicios adicionales) — el CLI local y el cliente tipado ya existen (ver sección anterior), falta el esquema de tablas y conectar los componentes/contexts reales.
 - **Stripe**: procesamiento real de pagos en el flujo de reservación (`app/reservar/page.tsx`), reemplazando la redirección directa a `/pago-exitoso` por un Stripe Checkout o Payment Intent, con confirmación por webhook antes de mostrar la página de éxito.
 - **`sonner`**: notificaciones tipo toast globales (ej. confirmar "agregado al carrito", errores de guardado en el modal de `UsersTable.tsx`, feedback de acciones) — todavía no está instalada ni implementada; cuando se agregue, montar su `<Toaster />` en [app/layout.tsx](app/layout.tsx) junto a `AuthProvider`/`CartProvider`.
 - Al conectar backend real, mantener `lib/mock-data.ts` como referencia de la forma (shape) de los datos, pero las fuentes de verdad pasarán a ser consultas a Supabase.
