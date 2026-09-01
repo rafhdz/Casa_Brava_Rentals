@@ -17,43 +17,51 @@ Luego abrir [http://localhost:3000](http://localhost:3000).
 
 ### Base de datos local (Supabase)
 
-El proyecto ya tiene inicializado el CLI de Supabase (`supabase/` en la raíz) para desarrollo local con Docker. Aún no hay tablas ni datos reales — solo la infraestructura lista y tipada; toda la UI sigue leyendo de `lib/mock-data.ts` (ver sección 8).
+El proyecto ya tiene inicializado el CLI de Supabase (`supabase/` en la raíz) para desarrollo local con Docker, con el **esquema relacional inicial ya migrado** (tablas de perfiles, reservaciones y los tres servicios adicionales — ver sección 3 y el detalle en `CLAUDE.md`). **El login ya usa Supabase Auth de verdad** (ver sección 6); el resto de la UI (fotos, amenidades, servicios, tablas del panel admin) sigue leyendo de `lib/mock-data.ts` (ver sección 8).
+
+⚠️ Los contenedores de Supabase **no persisten** entre reinicios de Docker o de la máquina — si el login no funciona (o `docker ps` no muestra nada con "supabase" en el nombre), corre `npx supabase start` de nuevo antes de `npm run dev`.
 
 ```bash
 npx supabase start   # levanta los contenedores locales (requiere Docker corriendo)
 npx supabase stop    # los apaga
+npx supabase db reset  # recrea la base desde cero: aplica todas las migraciones + supabase/seed.sql
 ```
 
-Al correr `supabase start` la primera vez, imprime las URLs y claves del entorno local (API, Studio, `anon key`, etc.) — esos valores van en `.env.local` (no versionado) como `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`. El cliente tipado vive en `lib/supabase.ts` (usa `createClient<Database>(...)`), y los tipos de las tablas se regeneran con:
+Al correr `supabase start` la primera vez, imprime las URLs y claves del entorno local (API, Studio, `anon key`, etc.) — esos valores van en `.env.local` (no versionado) como `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Los clientes tipados viven en `lib/supabase/` (uno para Client Components, otro para Server Components, otro para el middleware — ver sección 3 y el detalle en `CLAUDE.md`), y los tipos de las tablas se regeneran con:
 
 ```bash
 npx supabase gen types typescript --local > lib/database.types.ts
 ```
 
-Hay que volver a correr ese comando cada vez que cambie el esquema de la base de datos (nuevas tablas, columnas, etc.), para que `lib/database.types.ts` no quede desactualizado.
+Hay que volver a correr ese comando cada vez que cambie el esquema (nueva migración, nueva tabla/columna/enum), para que `lib/database.types.ts` no quede desactualizado.
+
+**Migraciones** viven en `supabase/migrations/` (una por cambio de esquema, nunca se editan una vez aplicadas en un entorno compartido — se crean con `npx supabase migration new <nombre>`). La primera, `20260901072551_init_schema.sql`, crea todo el modelo relacional descrito en la sección 3. `supabase/seed.sql` siembra datos de desarrollo equivalentes a los de `lib/mock-data.ts` (usuarios, tarifas, menús, vinos, masajistas) — se re-ejecuta automáticamente cada vez que corres `supabase db reset`.
+
+⚠️ **Row Level Security (RLS) está deshabilitado a propósito** en todas las tablas por ahora — es un paso pendiente documentado con un `TODO` al final de la migración inicial, no un descuido. No conectar ningún componente real a estas tablas antes de esa migración de políticas RLS.
 
 ## 3. Estructura de carpetas
 
 ```
+middleware.ts           → Refresca la sesión de Supabase y aplica los guards de ruta en el servidor (ver sección 6)
+
 app/
   layout.tsx          → Layout global (Navbar + Footer envolviendo todas las páginas)
-  page.tsx             → Pantalla principal del huésped (home) — ruta protegida, envuelta en <ProtectedRoute>
-  login/page.tsx        → Pantalla de acceso restringido
-  register/page.tsx     → Pantalla de registro por invitación (demo) — sin enlace desde la UI, solo accesible directamente en /register
-  reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago) — ruta protegida, envuelta en <ProtectedRoute>
+  page.tsx             → Pantalla principal del huésped (home) — pública, no requiere sesión (ver sección 6)
+  login/page.tsx        → Pantalla de acceso restringido, usa Supabase Auth real
+  register/page.tsx     → Pantalla de registro por invitación (demo, sigue mockeada) — sin enlace desde la UI, solo accesible directamente en /register
+  reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago) — ruta protegida por middleware.ts
   servicios/
-    spa/page.tsx          → Flujo de reserva de SPA/Masajes — ruta protegida, envuelta en <ProtectedRoute>
-    comida/page.tsx        → Flujo de reserva de Comida — ruta protegida, envuelta en <ProtectedRoute>
-    vinos/page.tsx          → Flujo de compra del Paquete de Vinos — ruta protegida, envuelta en <ProtectedRoute>
-  carrito/page.tsx       → Carrito de servicios adicionales (listado, eliminar, total, pagar) — ruta protegida, envuelta en <ProtectedRoute>
+    spa/page.tsx          → Flujo de reserva de SPA/Masajes — ruta protegida por middleware.ts
+    comida/page.tsx        → Flujo de reserva de Comida — ruta protegida por middleware.ts
+    vinos/page.tsx          → Flujo de compra del Paquete de Vinos — ruta protegida por middleware.ts
+  carrito/page.tsx       → Carrito de servicios adicionales (listado, eliminar, total, pagar) — ruta protegida por middleware.ts
   pago-exitoso/page.tsx → Pantalla estática de confirmación de pago (reutilizada por /reservar y /carrito)
-  admin/page.tsx        → Dashboard de administración (usuarios y reservaciones) — sin protección de ruta
-  perfil/page.tsx       → Vista de perfil del usuario con sesión activa — protegida con su propia redirección inline
+  admin/page.tsx        → Dashboard de administración (usuarios y reservaciones) — ruta protegida por middleware.ts, requiere role === "admin"
+  perfil/page.tsx       → Vista de perfil del usuario con sesión activa (datos reales de Supabase) — protegida por middleware.ts y con su propia redirección inline como respaldo
 
 components/
   Navbar.tsx            → Barra superior (logo + Carrito/Perfil/Iniciar sesión/Cerrar sesión según la sesión)
   Footer.tsx            → Pie de página
-  ProtectedRoute.tsx     → Envoltorio cliente que exige sesión activa; redirige a /login si no la hay
   BackButton.tsx          → Botón "← Volver" (useRouter().back()), usado en las vistas de servicios, /reservar y /carrito
   Calendar.tsx            → Wrapper delgado sobre `react-day-picker` con el tema Tailwind del proyecto ya aplicado (classNames, ícono de Chevron con lucide-react, locale español) — usado por DateRangeSelector, SpaBookingForm y FoodBookingForm
   Carousel.tsx          → Carrusel de fotos de la propiedad
@@ -72,15 +80,47 @@ components/
   CartItemRow.tsx          → Fila individual del carrito, formatea los detalles según el tipo de servicio
 
 lib/
-  mock-data.ts          → TODOS los datos de prueba: fotos, amenidades, servicios, precios, usuarios, reservaciones y disponibilidad de spa/comida/vinos
-  AuthContext.tsx       → Estado global de sesión mockeada (Context + localStorage)
-  CartContext.tsx       → Estado global del carrito de servicios adicionales (Context + localStorage)
-  supabase.ts           → Cliente de Supabase tipado (createClient<Database>(...)), aún sin uso en la UI
+  mock-data.ts          → TODOS los datos de prueba que siguen mockeados: fotos, amenidades, servicios, precios, usuarios y reservaciones del panel admin, disponibilidad de spa/comida/vinos
+  AuthContext.tsx       → Estado global de sesión REAL de Supabase Auth (Context; ya no usa localStorage — ver sección 6)
+  CartContext.tsx       → Estado global del carrito de servicios adicionales (Context + localStorage, sigue mockeado)
   database.types.ts     → Tipos TypeScript generados automáticamente desde el esquema de Supabase local (no editar a mano, se regenera con el CLI)
+  supabase/
+    env.ts                → Valida y exporta NEXT_PUBLIC_SUPABASE_URL/ANON_KEY ya tipadas como string
+    client.ts             → createClient() con createBrowserClient — para Client Components
+    server.ts             → createClient() (async) con createServerClient — para Server Components/Actions/Route Handlers
+    middleware.ts          → updateSession(request) — refresco de sesión + guards de ruta, usado por middleware.ts en la raíz
 
 supabase/
   config.toml           → Configuración del entorno local de Supabase (puertos, servicios habilitados, etc.), generado por `supabase init`
+  seed.sql              → Datos de desarrollo (equivalentes a lib/mock-data.ts) que se insertan al correr `supabase db reset`
+  migrations/
+    20260901072551_init_schema.sql  → Migración inicial: ENUMs, tablas de perfiles/reservaciones/servicios, llaves foráneas (ver sección 3.1)
 ```
+
+### 3.1 Modelo relacional (Supabase)
+
+Definido en `supabase/migrations/20260901072551_init_schema.sql`. Resumen de las tablas (todas en el schema `public`, con `id` de tipo `uuid`):
+
+| Tabla | Para qué sirve | Llaves foráneas |
+|---|---|---|
+| `profiles` | Datos de cada usuario (huésped, admin, etc.) | `id` → `auth.users(id)` |
+| `property_settings` | Tarifa por noche y depósito de seguridad (reemplaza `PRICING_CONFIG`) | — |
+| `fare_types` | Tipos de tarifa (Estándar / Flexible), con su recargo (reemplaza `FARE_OPTIONS`) | — |
+| `reservations` | Una reservación de la casa (fechas, tarifa, monto, estado) | `guest_id` → `profiles`, `fare_type_id` → `fare_types` |
+| `spa_masseuses` | Catálogo de masajistas (reemplaza `SPA_MASSEUSES`) | — |
+| `spa_bookings` | Una sesión de spa reservada dentro de una reservación | `reservation_id` → `reservations`, `masseuse_id` → `spa_masseuses` |
+| `food_menus` | Catálogo de menús por tiempo de comida (reemplaza `FOOD_MENU_OPTIONS`) | — |
+| `food_bookings` | Un pedido de comida dentro de una reservación | `reservation_id` → `reservations`, `menu_id` → `food_menus` |
+| `wines` | Catálogo de botellas individuales (reemplaza `WINE_BOTTLES`) | — |
+| `wine_packages` | Catálogo de paquetes de vino (reemplaza `WINE_PACKAGE`) | — |
+| `wine_orders` | Un pedido de vinos dentro de una reservación | `reservation_id` → `reservations` |
+| `wine_order_items` | Cada línea de un pedido de vinos (botella suelta o paquete) | `wine_order_id` → `wine_orders`, `wine_id` → `wines` (opcional), `wine_package_id` → `wine_packages` (opcional) |
+
+Notas importantes:
+
+- **`reservations` usa soft delete**: tiene una columna `deleted_at` en vez de borrarse físicamente con `DELETE`. Cualquier consulta que liste reservaciones debe agregar `where deleted_at is null` a mano.
+- **RLS deshabilitado por ahora**: ninguna tabla tiene Row Level Security activo. Es intencional mientras nada en la UI se conecta a Supabase — queda un `TODO` explícito al final de la migración para crear las políticas antes de producción. No exponer estas tablas a un cliente real sin esa migración pendiente.
+- `supabase/seed.sql` llena `profiles`, `property_settings`, `fare_types`, `spa_masseuses`, `food_menus`, `wines` y `wine_packages` con datos equivalentes a los del prototipo (`lib/mock-data.ts`). Las tablas de reservaciones y bookings quedan vacías (ver el comentario en el propio `seed.sql` — los datos mock de reservaciones no tienen usuarios reales asociados).
 
 Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `components/`. Si es solo texto o números de ejemplo, vive en `lib/mock-data.ts`.**
 
@@ -95,8 +135,8 @@ Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `c
 - **Amenidades**: el diseño está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx), que ahora itera primero por **categoría** (`AmenityCategory`, subtítulo tipo Airbnb) y luego por cada amenidad dentro de ella, mostrando su ícono `.svg` (tag `<img>` nativo, no `next/image`, porque el optimizador de imágenes de Next.js no sirve SVG sin habilitar `dangerouslyAllowSVG` en `next.config.ts`) seguido del texto. El contenido (categorías, amenidades y la ruta `url` de cada ícono) se edita en `lib/mock-data.ts`; los archivos `.svg` reales viven en `public/icons/amenities/<categoría>/`.
 - **Tablas del dashboard de administración**: el diseño de la tabla de usuarios está en [components/UsersTable.tsx](components/UsersTable.tsx) y el de reservaciones en [components/ReservationsTable.tsx](components/ReservationsTable.tsx). El contenido de ambas tablas se edita en `lib/mock-data.ts`, igual que el resto del sitio.
 - **Flujos de reserva de servicios adicionales** (SPA, Comida, Vinos): cada uno vive en su propio componente cliente — [components/SpaBookingForm.tsx](components/SpaBookingForm.tsx), [components/FoodBookingForm.tsx](components/FoodBookingForm.tsx), [components/WineBookingForm.tsx](components/WineBookingForm.tsx) — montado en su página bajo `app/servicios/<id>/page.tsx`. Todos calculan su propio precio y llaman a `addToCart()` (ver `lib/CartContext.tsx` más abajo) al enviar el formulario; el botón "Reservar" de cada `ServiceCard` en el Home enlaza directamente a `/servicios/<id>` porque el `id` de `ADDITIONAL_SERVICES` coincide con el nombre de la carpeta de ruta.
-- **Carrito** ([app/carrito/page.tsx](app/carrito/page.tsx)): la interactividad vive en [components/CartView.tsx](components/CartView.tsx) (listado vía [components/CartItemRow.tsx](components/CartItemRow.tsx), eliminar item, total y botón "Pagar servicios"), mientras que la página en sí sigue siendo un Server Component envuelto en `<ProtectedRoute>`, igual que el resto de rutas protegidas.
-- **Botón "Volver"**: [components/BackButton.tsx](components/BackButton.tsx) es un componente cliente minimalista (`useRouter().back()` de `next/navigation`, ícono `<ArrowLeft />` de `lucide-react` junto al texto) montado arriba del contenido en `app/servicios/spa/page.tsx`, `app/servicios/comida/page.tsx`, `app/servicios/vinos/page.tsx`, `app/reservar/page.tsx`, `app/carrito/page.tsx` y `app/perfil/page.tsx`, para que el usuario nunca quede "atrapado" en esas vistas de flujo. Al ser Server Components envueltos en `<ProtectedRoute>`, importar `<BackButton />` (Client Component) no obliga a convertir la página entera en cliente — `app/perfil/page.tsx` ya era Client Component desde antes, así que ahí simplemente se importa igual.
+- **Carrito** ([app/carrito/page.tsx](app/carrito/page.tsx)): la interactividad vive en [components/CartView.tsx](components/CartView.tsx) (listado vía [components/CartItemRow.tsx](components/CartItemRow.tsx), eliminar item, total y botón "Pagar servicios"), mientras que la página en sí es un Server Component "limpio" — la protección de ruta ya no vive en su JSX, corre en `middleware.ts` (ver sección 6).
+- **Botón "Volver"**: [components/BackButton.tsx](components/BackButton.tsx) es un componente cliente minimalista (`useRouter().back()` de `next/navigation`, ícono `<ArrowLeft />` de `lucide-react` junto al texto) montado arriba del contenido en `app/servicios/spa/page.tsx`, `app/servicios/comida/page.tsx`, `app/servicios/vinos/page.tsx`, `app/reservar/page.tsx`, `app/carrito/page.tsx` y `app/perfil/page.tsx`, para que el usuario nunca quede "atrapado" en esas vistas de flujo. Al ser Server Components, importar `<BackButton />` (Client Component) no obliga a convertir la página entera en cliente — `app/perfil/page.tsx` y `app/reservar/page.tsx` ya eran Client Components desde antes por su propio estado, así que ahí simplemente se importa igual.
 - **Calendarios** ([components/Calendar.tsx](components/Calendar.tsx)): wrapper `"use client"` sobre `<DayPicker>` de `react-day-picker` (ver regla de librerías headless permitidas en [CLAUDE.md](CLAUDE.md)). No importa el CSS por defecto de la librería — en vez de eso, le pasa un `classNames` fijo que mapea cada pieza interna (`day`, `day_button`, `selected`, `range_start`/`range_middle`/`range_end`, `outside`, `disabled`, `today`, `nav`, `button_previous`/`button_next`, etc., ver el enum `UI`/`DayFlag`/`SelectionState` de la librería) a clases de Tailwind con la paleta `neutral` del proyecto (celdas `h-10 w-10`, encabezados de día en `text-neutral-500` centrados), y reemplaza el `Chevron` por defecto con uno propio que usa `<ChevronLeft />`/`<ChevronRight />` de `lucide-react`. El locale es español (`import { es } from "react-day-picker/locale"`). Un detalle importante para quien lo edite: react-day-picker puede activar varios modificadores a la vez sobre la misma celda (ej. un día puede ser `selected` **y** `range_start`, o `outside` **y** `disabled`, simultáneamente), y las clases de todos los modificadores activos terminan en el mismo `class="..."` del `<td>`. Cuando dos de esas clases fijan la misma propiedad CSS (color, fondo, radio) con la misma especificidad, gana la que Tailwind coloca más tarde en su hoja de estilos generada — un orden interno de la librería, no el orden en este objeto ni en el atributo `class`; se verificó empíricamente que ese orden **no** favorece a la clase semánticamente "más específica" (p.ej. `text-neutral-700` de `day` le ganaba a `text-neutral-300` de `disabled`, dejando los días deshabilitados con el mismo color que los habilitados). Por eso toda clase pensada para sobreescribir el estilo por defecto de `day` (`outside`, `disabled`, `range_start`/`range_end`/`range_middle`) usa `!important` en todas sus propiedades, no solo en la que a simple vista parece necesitarlo — incluyendo el bg/texto de `range_start`/`range_end`, necesario para que el check-in/check-out se siga leyendo bien cuando cae justo en un día "outside" (relleno del mes siguiente/anterior). `range_start`/`range_end` además fijan explícitamente el lado contrario a `-none` (no solo el lado propio a `-full`) para que el rango se vea como una píldora continua sin depender de si `rounded-full` (de `selected`, activo a la vez) gana en las esquinas que no se están forzando. Se usa en tres lugares, cada uno con su propia lógica de fechas (todas basadas en `date-fns` para convertir entre `string` ISO y `Date`, evitando el bug de `new Date("yyyy-MM-dd")` que en JS nativo se interpreta en UTC y puede desfasar un día según la zona horaria del navegador):
   - **[components/DateRangeSelector.tsx](components/DateRangeSelector.tsx)** (usado en `/reservar`): `mode="range"`, con `disabled={{ before: today }}` para no permitir fechas pasadas. Mantiene exactamente el mismo contrato de props que antes (`checkIn`, `checkOut`, `onCheckInChange`, `onCheckOutChange`, todos `string` ISO) — convierte a `DateRange` de `react-day-picker` (`{ from, to }` con objetos `Date`) solo internamente, así que `app/reservar/page.tsx` no necesitó ningún cambio.
   - **[components/SpaBookingForm.tsx](components/SpaBookingForm.tsx)** y **[components/FoodBookingForm.tsx](components/FoodBookingForm.tsx)**: `mode="single"`, reemplazando la fila de botones tipo "pill" que existía antes sobre `masseuse.availableDays` / `FOOD_AVAILABLE_DATES`. La disponibilidad simulada se expresa con `disabled={(date) => !availableDays.includes(format(date, "yyyy-MM-dd"))}` — el calendario completo se muestra, pero solo los días de esa lista quedan clicables; el resto aparece deshabilitado (`!text-neutral-300`). En `SpaBookingForm`, el calendario lleva `key={masseuse.id}` para remontarse (y así recalcular `defaultMonth`) cada vez que se elige otra masajista, ya que cada una tiene sus propias fechas disponibles — mismo patrón de remonte por `key` que ya usaba `Carousel.tsx` para las fotos. Debajo del calendario, ambos formularios muestran la fecha elegida formateada con `formatSimulatedDate` (la misma función que usa el resto de la app para estas fechas simuladas), no con `date-fns`.
@@ -132,41 +172,46 @@ Para agregar un nuevo usuario o una nueva reservación de prueba, basta con agre
 
 **Fechas simuladas de disponibilidad**: `SPA_MASSEUSES[].availableDays` y `FOOD_AVAILABLE_DATES` son fechas ISO (ej. `"2026-09-04"`), no un rango dinámico — para la demo, alargar o mover estas fechas basta con editar los arreglos directamente en `lib/mock-data.ts`. Se muestran en la UI ya formateadas (ej. "04 sept.") a través de la función `formatSimulatedDate(isoDate)`, exportada también desde `mock-data.ts`.
 
-## 6. Sistema de roles simulado, sesión y panel de administración
+## 6. Autenticación real (Supabase Auth + middleware) y panel de administración
 
-El prototipo distingue dos roles: **Huésped** (`guest`) y **Administrador** (`admin`). Sigue sin haber autenticación real (no hay verificación de contraseña ni backend), pero ahora sí existe una **sesión mockeada persistente**, manejada por [lib/AuthContext.tsx](lib/AuthContext.tsx):
+El prototipo distingue tres roles a nivel de base de datos — `admin`, `holder` y `guest` (ENUM `role_type`) —, pero en la UI solo se usan `admin` y `guest` (`role: "holder"` existe en el esquema para uso futuro, sin pantalla propia todavía). **La autenticación ya es real**: Supabase Auth con cookies, verificada del lado del servidor. Ya no hay `localStorage` de sesión ni verificación de contraseña simulada.
 
-- `AuthProvider` envuelve toda la app en [app/layout.tsx](app/layout.tsx) y expone un usuario de sesión (`user`) a través de un React Context.
-- La sesión se guarda en `localStorage` (clave `casabrava_session_user`), por lo que **persiste al recargar la página o reiniciar el servidor de desarrollo** — no se pierde hasta que alguien cierra sesión o borra el storage del navegador.
-- El hook `useAuth()` (exportado desde el mismo archivo) da acceso a `user`, `isLoading`, `login(email)` y `logout()` desde cualquier componente cliente.
+**Piezas del sistema:**
+
+- **[middleware.ts](middleware.ts)** (raíz del proyecto): corre en el servidor antes de que cualquier página renderice. Refresca la sesión de Supabase en cada navegación y decide si redirigir:
+  - Sin sesión, entrar a `/reservar`, `/perfil`, `/carrito` o cualquier `/servicios/*` → redirige a `/login`.
+  - Entrar a `/admin` sin sesión → redirige a `/login`. Con sesión pero `role !== "admin"` (huésped, o cualquier caso donde no se pudo leer el perfil) → redirige a `/`.
+  - **El Home (`/`) es público** — a diferencia del prototipo anterior (que sí lo protegía con un componente cliente), ahora cualquiera puede ver `/` sin iniciar sesión. Es un cambio de comportamiento deliberado de esta iteración, documentado también en `CLAUDE.md`.
+  - La lógica real vive en `lib/supabase/middleware.ts` (`updateSession`); `middleware.ts` en la raíz solo la invoca. Nota técnica: Next.js 16 renombró esta convención de archivo a `proxy.ts`, pero `middleware.ts` sigue funcionando (aparece un warning de deprecación al correr `npm run dev`, nada más) — ver el detalle en `CLAUDE.md`.
+- **[lib/AuthContext.tsx](lib/AuthContext.tsx)**: `AuthProvider` envuelve toda la app en [app/layout.tsx](app/layout.tsx). El hook `useAuth()` expone `{ user, profile, isLoading, login(email, password), logout() }` — `user` es la sesión de Supabase Auth, `profile` es la fila completa de la tabla `profiles` (nombre, apellidos, `role`, `status`, etc.) para ese usuario. Ya no hay `localStorage` — la sesión vive en cookies (manejadas por `@supabase/ssr`) y se sincroniza automáticamente ante login/logout/expiración de token.
 
 **Validación del formulario de login** ([app/login/page.tsx](app/login/page.tsx)):
 
-- El campo de correo se valida contra un formato básico (`nombre@dominio.tld`) antes de enviar el formulario. Entradas como `rafael` o `rafael@` muestran un mensaje de error en rojo debajo del input y no procesan el envío.
-- El campo de contraseña solo valida que no esté vacío (sigue sin comparar contra ninguna contraseña real).
-- El formulario usa `noValidate` para desactivar la validación nativa del navegador y mostrar siempre nuestros propios mensajes de error estilizados con Tailwind.
+- El campo de correo sigue validándose contra un formato básico (`nombre@dominio.tld`) antes de enviar el formulario, igual que antes.
+- El campo de contraseña sigue validando que no esté vacío, **pero ahora la contraseña sí se verifica de verdad** contra Supabase Auth (`signInWithPassword`).
+- Si las credenciales son incorrectas, el mensaje de error se muestra en el mismo lugar de siempre (bajo el campo de contraseña, mismo estilo rojo), pero ahora viene de traducir el error real de Supabase (`AuthApiError`) a español — ej. "Invalid login credentials" se muestra como "Correo o contraseña incorrectos."
+- El formulario sigue usando `noValidate` para mostrar siempre los mensajes de error propios en vez de los del navegador.
 
-**Cómo probarlo:**
+**Cómo probarlo (usuarios de prueba sembrados por `supabase/seed.sql`, ver sección 3):**
 
-1. Ir a [/login](app/login/page.tsx).
-2. Escribir un correo con formato inválido (ej. `rafael@`) y dar clic en "Ingresar" → debe aparecer un mensaje de error en rojo bajo el campo, sin redirigir.
-3. Con el correo `admin@test.com` (cualquier contraseña no vacía), el login busca ese usuario en `mockUsers`, lo guarda como sesión activa y redirige a `/admin`.
-4. Con cualquier otro correo válido, se guarda una sesión de "Huésped" genérico con ese correo y redirige a `/` (vista de huésped).
-5. Recargar el navegador (o reiniciar `npm run dev`) y volver a entrar a la app: la sesión sigue activa porque vive en `localStorage`, no en memoria.
+1. Con Supabase local corriendo (`npx supabase start`) y `npm run dev` activo, ir a [/login](app/login/page.tsx).
+2. Escribir un correo con formato inválido (ej. `rafael@`) y dar clic en "Ingresar" → debe aparecer un mensaje de error en rojo bajo el campo, sin llegar a llamar a Supabase.
+3. Iniciar sesión con `admin@test.com` / `changeme123` → redirige a `/admin` (rol `admin` real, leído de `profiles`).
+4. Iniciar sesión con `carlos.ruiz@example.com` / `changeme123` (rol `guest`) → redirige a `/` (home). Si desde ahí se navega manualmente a `/admin`, el middleware redirige de vuelta a `/`.
+5. Escribir una contraseña incorrecta para un correo que sí existe → mensaje "Correo o contraseña incorrectos." bajo el campo de contraseña, sin redirigir.
+6. Cerrar sesión desde el botón de "Cerrar sesión" (Navbar o `/perfil`) y confirmar que `/reservar`, `/perfil`, `/carrito` o `/servicios/spa` redirigen de nuevo a `/login`.
 
-**Navbar dinámico** ([components/Navbar.tsx](components/Navbar.tsx)): lee `useAuth()` para decidir qué mostrar — si hay sesión activa, muestra los botones de "Perfil" y "Cerrar sesión" como íconos (`/icons/system/profile.svg` y `/icons/system/logout.svg`, con texto accesible `sr-only` y `title` como tooltip); si no hay sesión, muestra el enlace de texto "Iniciar sesión", **excepto** cuando la ruta actual ya es `/login` (comparado con `usePathname()` de `next/navigation`) — ahí no tendría sentido mostrar un enlace a la misma pantalla en la que el usuario ya está. El ícono de "Carrito" (con su badge de `totalItems`) también se oculta condicionalmente: cuando `pathname.startsWith("/admin")` es `true`, el enlace `/carrito` no se renderiza, ya que el carrito de servicios adicionales pertenece a la experiencia de huésped y no aplica dentro del panel de administración. Al estar envuelto en el mismo contenedor `flex items-center gap-2 sm:gap-3` que "Perfil" y "Cerrar sesión", quitar el carrito del árbol no deja huecos — el `gap` se recalcula solo entre los íconos que sí se renderizan.
+**Navbar dinámico** ([components/Navbar.tsx](components/Navbar.tsx)): sigue leyendo `useAuth()` para decidir qué mostrar — si hay sesión activa, muestra los botones de "Perfil" y "Cerrar sesión" (ahora `logout()` es `async`, así que el handler hace `await logout()` antes de redirigir); si no hay sesión, muestra "Iniciar sesión". El resto del comportamiento (ocultar "Carrito" dentro de `/admin`, badge de `totalItems`) no cambió.
 
-**Pantalla de registro** ([app/register/page.tsx](app/register/page.tsx)): prototipo de registro pensado para llegar únicamente por una liga de invitación, por lo que **no** tiene ningún enlace desde el `Navbar` ni desde ningún otro menú — para la demo actual se visualiza entrando directamente a `/register`. Por eso la carpeta se llama `register` (en inglés) y no `registro`, rompiendo a propósito la convención de rutas en español del resto de `app/**` (ver CLAUDE.md), para que coincida con la URL pedida para la demo. Visualmente sigue el mismo patrón que `app/login/page.tsx` (mismo layout de tarjeta, mismos estilos de input/error, `noValidate` + validación propia). Pide Nombre(s), Apellido Paterno, Apellido Materno, Correo electrónico y Teléfono celular (este último como input compuesto: un `<select>` de lada — México +52, USA/Canadá +1, España +34, Argentina +54, definido localmente en la página y no en `lib/mock-data.ts` porque es configuración fija del input, no un dato de negocio — junto a un `<input type="tel">` para el número). Al enviar, valida que ningún campo esté vacío y que el correo tenga formato válido; con errores, cada campo muestra su mensaje en rojo debajo (mismo estilo que login). Si todo es válido, **no** guarda nada en `mockUsers` ni en la sesión de `AuthContext` — solo muestra un mensaje de éxito ("Registro completado con éxito. Redirigiendo...") dentro de la misma tarjeta, deshabilita el formulario (`<fieldset disabled>`) y redirige a `/login` después de 2 segundos (`setTimeout` dentro de un `useEffect` que depende de ese estado de éxito, con su propio cleanup). Queda pendiente conectar la creación real de la cuenta (Supabase Auth) y decidir si el registro debe iniciar sesión automáticamente o solo redirigir a `/login` como ahora.
+**Pantalla de registro** ([app/register/page.tsx](app/register/page.tsx)): **sigue siendo un formulario 100% mock** — no se tocó en esta migración porque no se pidió explícitamente. Al enviarlo, solo muestra un mensaje de éxito simulado y redirige a `/login`; no crea ningún usuario real en Supabase Auth ni en `profiles`. Conectarlo (`supabase.auth.signUp()` + insertar en `profiles`) queda como trabajo pendiente (ver sección 8).
 
-**Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): incluye `<BackButton />` arriba del encabezado y un saludo personalizado ("Hola, {nombre}") en vez de un título estático. Muestra Nombre, Correo y Rol del usuario en sesión dentro de una sola tarjeta (`rounded-2xl`, `shadow-sm`, `divide-y`) que agrupa el bloque de avatar y la ficha de datos como secciones separadas por un divisor interno, en vez de dos tarjetas independientes. Si no hay ningún usuario en sesión, redirige automáticamente a `/login`.
-
-**Rutas protegidas por sesión (`ProtectedRoute`)**: el Home (`/`) y el flujo de reservación (`/reservar`) ahora exigen sesión activa. La protección se implementa con [components/ProtectedRoute.tsx](components/ProtectedRoute.tsx), un componente `"use client"` que envuelve el contenido de la página: consume `useAuth()`, y si `!isLoading && !user` redirige a `/login`; mientras `isLoading` es `true` muestra un estado de carga breve, y si hay sesión renderiza `children` normalmente. Esto permite que `app/page.tsx` siga siendo un Server Component — solo el wrapper `<ProtectedRoute>` es cliente, no toda la página. `/admin` sigue sin este guard (ver sección 8).
+**Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): mismo diseño visual de siempre (avatar con inicial, tarjeta con Nombre/Correo/Rol, botón "Cerrar sesión"), pero ahora los datos vienen de `profile` (Supabase) en vez de un `MockUser`. El nombre completo se arma concatenando `first_name` + `apellido_paterno` + `apellido_materno` (los tres campos separados de `profiles`, a diferencia del `nombre` único que tenía `MockUser`). Sigue teniendo su propia redirección inline a `/login` si no hay sesión, como respaldo del guard de `middleware.ts` (por ejemplo, si la sesión expira mientras la pestaña ya está abierta en `/perfil`).
 
 **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)):
 
-- **Sección "Usuarios invitados"**: tabla con los datos de `mockUsers` (nombre, email, rol, estado) usando [components/UsersTable.tsx](components/UsersTable.tsx), que ahora es un Client Component (`"use client"`). El botón "Editar" de cada fila abre un modal interactivo (fondo `bg-black/40 backdrop-blur-sm`, panel `bg-white rounded-2xl shadow-2xl` con una transición de entrada vía `@keyframes modal-in` en [app/globals.css](app/globals.css)) con un formulario para editar nombre, correo, rol y estado del usuario seleccionado; cierra con "Cancelar", clic fuera del panel, o la tecla Escape. `UsersTable` mantiene su propio estado local de usuarios (`useState`, inicializado con la prop `users` que la página le pasa desde `mockUsers`), así que al guardar los cambios se reflejan de inmediato en la tabla — es solo en memoria del navegador, se pierde al recargar la página. Al enviar el formulario se llama a `handleSaveUser(updatedUser)`, una función `async` que ya está preparada para la integración futura: reemplazar la actualización de `setUsers` dentro de ella por la llamada real a Supabase (mutación/API) es el único cambio necesario — el modal, el formulario y el resto del componente no tendrían que tocarse. El comentario `// TODO: Integración con Supabase` dentro de esa función marca exactamente dónde hacerlo.
-- **Sección "Reservaciones"**: tabla con los datos de `mockReservations` usando [components/ReservationsTable.tsx](components/ReservationsTable.tsx), filtrando en la propia página (`app/admin/page.tsx`) para no mostrar las reservaciones con estado `pasada`.
-- Sigue sin tener ningún guard de ruta: es accesible por URL directa sin pasar por `/login`, incluso si `useAuth()` reporta que no hay sesión o que el rol no es `admin`.
+- **Sección "Usuarios invitados"**: tabla con los datos de `mockUsers` (nombre, email, rol, estado) usando [components/UsersTable.tsx](components/UsersTable.tsx) — **sigue sin conectarse a la tabla real `profiles`**, sigue siendo de solo lectura sobre datos mockeados. El botón "Editar" de cada fila abre un modal interactivo (fondo `bg-black/40 backdrop-blur-sm`, panel `bg-white rounded-2xl shadow-2xl` con una transición de entrada vía `@keyframes modal-in` en [app/globals.css](app/globals.css)) con un formulario para editar nombre, correo, rol y estado del usuario seleccionado; cierra con "Cancelar", clic fuera del panel, o la tecla Escape. `UsersTable` mantiene su propio estado local de usuarios (`useState`, inicializado con la prop `users` que la página le pasa desde `mockUsers`), así que al guardar los cambios se reflejan de inmediato en la tabla — es solo en memoria del navegador, se pierde al recargar la página. Al enviar el formulario se llama a `handleSaveUser(updatedUser)`, una función `async` que ya está preparada para la integración futura: reemplazar la actualización de `setUsers` dentro de ella por la llamada real a Supabase (mutación/API) es el único cambio necesario — el modal, el formulario y el resto del componente no tendrían que tocarse. El comentario `// TODO: Integración con Supabase` dentro de esa función marca exactamente dónde hacerlo.
+- **Sección "Reservaciones"**: tabla con los datos de `mockReservations` usando [components/ReservationsTable.tsx](components/ReservationsTable.tsx), filtrando en la propia página (`app/admin/page.tsx`) para no mostrar las reservaciones con estado `pasada`. Igual que "Usuarios invitados", sigue sin conectarse a la tabla real `reservations`.
+- **Ahora sí tiene guard de ruta real**: `middleware.ts` exige sesión con `role === "admin"` en `profiles` antes de dejar pasar a `/admin` (ver arriba) — a diferencia del prototipo anterior, ya no es accesible por URL directa sin cumplir ambas condiciones.
 
 ## 7. Carrito de servicios adicionales
 
@@ -193,14 +238,15 @@ Además de la reservación de la estadía (`/reservar`), el prototipo tiene un f
 
 Esto es un prototipo de interfaz, así que lo siguiente **todavía no funciona de verdad** y queda pendiente:
 
-- **Login** ([app/login/page.tsx](app/login/page.tsx)): valida formato de correo y que la contraseña no esté vacía, pero no verifica ninguna contraseña real contra un backend. Falta conectar autenticación real con roles reales (planeado: Supabase Auth).
-- **Sesión mockeada** ([lib/AuthContext.tsx](lib/AuthContext.tsx)): la "sesión" es un objeto guardado en `localStorage` del navegador, sin token, sin expiración y sin backend que la respalde. Cualquiera puede editarla manualmente desde las DevTools del navegador. Falta reemplazarla por sesiones reales de Supabase Auth (cookies/JWT).
-- **Protección de rutas**: `/admin` no está protegida por ningún guard de ruta — cualquiera que conozca la URL puede entrar directamente sin pasar por el login, incluso sin sesión o con rol `guest`. `/`, `/reservar` (vía `<ProtectedRoute>`) y `/perfil` (redirección inline) sí redirigen a `/login` si no hay sesión, pero es una redirección en el cliente (después de que la página ya cargó), no un guard real de servidor — no evita que el HTML/JS de la página llegue a cargarse brevemente antes de redirigir. Falta un guard de ruta real basado en sesión/rol (planeado: middleware de Next.js + Supabase Auth).
+- ~~**Login**~~ / ~~**Sesión mockeada**~~ / ~~**Protección de rutas**~~ — **ya resuelto**: [app/login/page.tsx](app/login/page.tsx) usa Supabase Auth real (`signInWithPassword`), la sesión vive en cookies (no `localStorage`, ver [lib/AuthContext.tsx](lib/AuthContext.tsx)), y [middleware.ts](middleware.ts) protege `/reservar`, `/perfil`, `/carrito`, `/servicios/*` (por sesión) y `/admin` (por sesión + `role === "admin"`) del lado del servidor. Ver el detalle completo en la sección 6.
+- **Registro** ([app/register/page.tsx](app/register/page.tsx)): sigue siendo 100% mock — no crea usuarios reales en Supabase Auth ni en `profiles`. Falta conectarlo con `supabase.auth.signUp()`.
+- **`/` (Home) es pública**: a diferencia del prototipo anterior, ya no exige sesión. Fue una decisión explícita de esta iteración (ver sección 6) — vale la pena confirmar con el cliente si es el comportamiento deseado antes de la demo, o si debe volver a requerir login.
+- **Políticas RLS pendientes**: la migración inicial (`supabase/migrations/20260901072551_init_schema.sql`) dejó Row Level Security deshabilitado en todas las tablas (ver sección 3.1) — hoy solo `profiles` se usa desde la app (para leer el propio perfil y el rol en el login/middleware), pero cualquier cliente con la `anon key` podría leer o escribir cualquier fila de cualquier tabla. Falta esa migración de políticas antes de exponer más tablas a componentes reales.
 - **Disponibilidad de fechas** ([app/reservar/page.tsx](app/reservar/page.tsx)): el selector de fechas no valida contra un calendario de disponibilidad real; solo calcula noches entre dos fechas.
 - **Pago** (botón "Proceder al pago"): redirige directo a la pantalla de éxito sin cobrar nada. Falta integrar un proveedor de pagos real (planeado: Stripe).
-- **Persistencia de la reservación**: no se guarda en ningún lado; al recargar la página se pierde todo. Falta una base de datos (planeado: Supabase).
-- **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)): las tablas de usuarios y reservaciones son de solo lectura sobre datos mockeados; el botón "Editar" no hace nada. Falta conectar a Supabase para leer/escribir usuarios y reservaciones reales.
+- **Persistencia de la reservación**: no se guarda en ningún lado; al recargar la página se pierde todo, a pesar de que ya existe la tabla `reservations` en Supabase (ver sección 3.1) — falta conectar el flujo de `/reservar` a ella.
+- **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)): aunque la ruta ya está protegida por rol (ver sección 6), las tablas de usuarios y reservaciones siguen siendo de solo lectura sobre datos mockeados; el botón "Editar" no hace nada. Falta conectarlas a las tablas reales `profiles`/`reservations`.
 - **Disponibilidad de SPA/Comida**: los días y horarios de `SPA_MASSEUSES` y `FOOD_AVAILABLE_DATES` son listas fijas en `mock-data.ts`, no un calendario real — no valida que un horario ya elegido por otro huésped deje de estar disponible.
-- **Carrito** ([lib/CartContext.tsx](lib/CartContext.tsx)): igual que la sesión mockeada, vive en `localStorage` del navegador sin backend que lo respalde. Falta persistirlo en Supabase (asociado al huésped) y, al "Pagar servicios" en `/carrito`, integrar Stripe en vez de solo vaciar el carrito y redirigir.
+- **Carrito** ([lib/CartContext.tsx](lib/CartContext.tsx)): sigue viviendo en `localStorage` del navegador sin backend que lo respalde, a pesar de que ya existen las tablas `spa_bookings`/`food_bookings`/`wine_orders` en Supabase (ver sección 3.1). Falta persistirlo ahí (asociado al huésped) y, al "Pagar servicios" en `/carrito`, integrar Stripe en vez de solo vaciar el carrito y redirigir.
 
 Para más detalle técnico sobre el stack y las convenciones de código, ver [CLAUDE.md](CLAUDE.md).

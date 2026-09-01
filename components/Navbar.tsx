@@ -15,8 +15,8 @@ export default function Navbar() {
   // Se eliminó 'const isLoginPage' porque ya no es necesaria
   const isAdminRoute = pathname.startsWith("/admin");
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 

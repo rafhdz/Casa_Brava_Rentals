@@ -6,6 +6,22 @@ import { useAuth } from "@/lib/AuthContext";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Traduce los mensajes de AuthApiError de Supabase a español, sin exponer
+// detalles internos del proveedor de auth en la UI.
+function translateAuthError(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("invalid login credentials")) {
+    return "Correo o contraseña incorrectos.";
+  }
+  if (normalized.includes("email not confirmed")) {
+    return "Debes confirmar tu correo antes de iniciar sesión.";
+  }
+  if (normalized.includes("too many requests")) {
+    return "Demasiados intentos. Espera un momento antes de volver a intentar.";
+  }
+  return "No pudimos iniciar sesión. Intenta de nuevo.";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
@@ -13,8 +29,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
     const trimmedEmail = email.trim();
@@ -41,9 +58,17 @@ export default function LoginPage() {
 
     if (hasError) return;
 
-    // Mock: simula un login exitoso. La validación real llegará con Supabase Auth.
-    const sessionUser = login(trimmedEmail);
-    router.push(sessionUser.rol === "admin" ? "/admin" : "/");
+    setIsSubmitting(true);
+    const { error, role } = await login(trimmedEmail, password);
+
+    if (error) {
+      setIsSubmitting(false);
+      setPasswordError(translateAuthError(error));
+      return;
+    }
+
+    router.push(role === "admin" ? "/admin" : "/");
+    router.refresh();
   }
 
   return (
@@ -106,9 +131,10 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
+            disabled={isSubmitting}
+            className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Ingresar
+            {isSubmitting ? "Ingresando…" : "Ingresar"}
           </button>
         </form>
       </div>
