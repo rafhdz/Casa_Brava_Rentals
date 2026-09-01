@@ -7,7 +7,7 @@ export default function Footer() {
           Developments. Acceso exclusivo por invitación.
         </p>
         <p>
-          Prototipo unicamente visual — datos de contacto y enlaces se activarán
+          Esto es un prototipo — los datos de contacto y enlaces se activarán
           con la integración final.
         </p>
       </div>

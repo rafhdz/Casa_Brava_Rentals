@@ -46,7 +46,7 @@ middleware.ts           → Refresca la sesión de Supabase y aplica los guards 
 
 app/
   layout.tsx          → Layout global (Navbar + Footer envolviendo todas las páginas)
-  page.tsx             → Pantalla principal del huésped (home) — pública, no requiere sesión (ver sección 6)
+  page.tsx             → Pantalla principal del huésped (home) — ruta protegida por middleware.ts, requiere sesión activa (ver sección 6)
   login/page.tsx        → Pantalla de acceso restringido, usa Supabase Auth real
   register/page.tsx     → Pantalla de registro por invitación (demo, sigue mockeada) — sin enlace desde la UI, solo accesible directamente en /register
   reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago) — ruta protegida por middleware.ts
@@ -180,8 +180,9 @@ El prototipo distingue tres roles a nivel de base de datos — `admin`, `holder`
 
 - **[middleware.ts](middleware.ts)** (raíz del proyecto): corre en el servidor antes de que cualquier página renderice. Refresca la sesión de Supabase en cada navegación y decide si redirigir:
   - Sin sesión, entrar a `/reservar`, `/perfil`, `/carrito` o cualquier `/servicios/*` → redirige a `/login`.
-  - Entrar a `/admin` sin sesión → redirige a `/login`. Con sesión pero `role !== "admin"` (huésped, o cualquier caso donde no se pudo leer el perfil) → redirige a `/`.
-  - **El Home (`/`) es público** — a diferencia del prototipo anterior (que sí lo protegía con un componente cliente), ahora cualquiera puede ver `/` sin iniciar sesión. Es un cambio de comportamiento deliberado de esta iteración, documentado también en `CLAUDE.md`.
+  - **El Home (`/`) también requiere sesión activa** — sin sesión, redirige a `/login`, igual que el resto de rutas protegidas. Es una coincidencia **exacta** de `pathname === "/"` (`PROTECTED_EXACT_PATHS`), evaluada aparte de las rutas por prefijo — necesario porque `"/"` con la misma lógica de prefijo (`startsWith`) haría match de cualquier URL, incluyendo `/login`, y generaría un bucle infinito de redirección.
+  - Entrar a `/admin` sin sesión → redirige a `/login`. Con sesión pero `role !== "admin"` (huésped, o cualquier caso donde no se pudo leer el perfil) → redirige a `/` (esto no genera bucle: como ya hay sesión, `/` se resuelve normalmente en vez de rebotar a `/login`).
+  - `/login` y `/register` no están protegidas — deben seguir siendo accesibles sin sesión para no quedar sin forma de entrar a la app.
   - La lógica real vive en `lib/supabase/middleware.ts` (`updateSession`); `middleware.ts` en la raíz solo la invoca. Nota técnica: Next.js 16 renombró esta convención de archivo a `proxy.ts`, pero `middleware.ts` sigue funcionando (aparece un warning de deprecación al correr `npm run dev`, nada más) — ver el detalle en `CLAUDE.md`.
 - **[lib/AuthContext.tsx](lib/AuthContext.tsx)**: `AuthProvider` envuelve toda la app en [app/layout.tsx](app/layout.tsx). El hook `useAuth()` expone `{ user, profile, isLoading, login(email, password), logout() }` — `user` es la sesión de Supabase Auth, `profile` es la fila completa de la tabla `profiles` (nombre, apellidos, `role`, `status`, etc.) para ese usuario. Ya no hay `localStorage` — la sesión vive en cookies (manejadas por `@supabase/ssr`) y se sincroniza automáticamente ante login/logout/expiración de token.
 
@@ -240,7 +241,6 @@ Esto es un prototipo de interfaz, así que lo siguiente **todavía no funciona d
 
 - ~~**Login**~~ / ~~**Sesión mockeada**~~ / ~~**Protección de rutas**~~ — **ya resuelto**: [app/login/page.tsx](app/login/page.tsx) usa Supabase Auth real (`signInWithPassword`), la sesión vive en cookies (no `localStorage`, ver [lib/AuthContext.tsx](lib/AuthContext.tsx)), y [middleware.ts](middleware.ts) protege `/reservar`, `/perfil`, `/carrito`, `/servicios/*` (por sesión) y `/admin` (por sesión + `role === "admin"`) del lado del servidor. Ver el detalle completo en la sección 6.
 - **Registro** ([app/register/page.tsx](app/register/page.tsx)): sigue siendo 100% mock — no crea usuarios reales en Supabase Auth ni en `profiles`. Falta conectarlo con `supabase.auth.signUp()`.
-- **`/` (Home) es pública**: a diferencia del prototipo anterior, ya no exige sesión. Fue una decisión explícita de esta iteración (ver sección 6) — vale la pena confirmar con el cliente si es el comportamiento deseado antes de la demo, o si debe volver a requerir login.
 - **Políticas RLS pendientes**: la migración inicial (`supabase/migrations/20260901072551_init_schema.sql`) dejó Row Level Security deshabilitado en todas las tablas (ver sección 3.1) — hoy solo `profiles` se usa desde la app (para leer el propio perfil y el rol en el login/middleware), pero cualquier cliente con la `anon key` podría leer o escribir cualquier fila de cualquier tabla. Falta esa migración de políticas antes de exponer más tablas a componentes reales.
 - **Disponibilidad de fechas** ([app/reservar/page.tsx](app/reservar/page.tsx)): el selector de fechas no valida contra un calendario de disponibilidad real; solo calcula noches entre dos fechas.
 - **Pago** (botón "Proceder al pago"): redirige directo a la pantalla de éxito sin cobrar nada. Falta integrar un proveedor de pagos real (planeado: Stripe).

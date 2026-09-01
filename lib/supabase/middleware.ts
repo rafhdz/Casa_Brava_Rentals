@@ -3,8 +3,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
 
-// Rutas que solo requieren sesión activa.
+// Rutas (por prefijo) que solo requieren sesión activa.
 const PROTECTED_PREFIXES = ["/reservar", "/perfil", "/carrito", "/servicios"];
+// Rutas de coincidencia EXACTA que solo requieren sesión activa. "/" no puede
+// vivir en PROTECTED_PREFIXES: con matchesPrefix (que usa startsWith) "/"
+// haría match de cualquier pathname y protegería /login, /register, etc.,
+// generando un bucle de redirección a /login.
+const PROTECTED_EXACT_PATHS = ["/"];
 // Ruta que además requiere role === "admin" en la tabla profiles.
 const ADMIN_PREFIX = "/admin";
 
@@ -54,7 +59,9 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isProtectedRoute = PROTECTED_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix));
+  const isProtectedRoute =
+    PROTECTED_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix)) ||
+    PROTECTED_EXACT_PATHS.includes(pathname);
   const isAdminRoute = matchesPrefix(pathname, ADMIN_PREFIX);
 
   if (!user && (isProtectedRoute || isAdminRoute)) {
