@@ -190,6 +190,7 @@ export type Database = {
           fare_type_id: string
           guest_id: string
           id: string
+          payment_status: Database["public"]["Enums"]["payment_status_type"]
           status: Database["public"]["Enums"]["reservation_status"]
           total_amount: number
           updated_at: string
@@ -202,6 +203,7 @@ export type Database = {
           fare_type_id: string
           guest_id: string
           id?: string
+          payment_status?: Database["public"]["Enums"]["payment_status_type"]
           status?: Database["public"]["Enums"]["reservation_status"]
           total_amount: number
           updated_at?: string
@@ -214,6 +216,7 @@ export type Database = {
           fare_type_id?: string
           guest_id?: string
           id?: string
+          payment_status?: Database["public"]["Enums"]["payment_status_type"]
           status?: Database["public"]["Enums"]["reservation_status"]
           total_amount?: number
           updated_at?: string
@@ -421,8 +424,17 @@ export type Database = {
     }
     Enums: {
       meal_type: "Desayuno" | "Almuerzo" | "Cena"
+      payment_status_type:
+        | "pendiente"
+        | "parcial"
+        | "completado"
+        | "reembolsado"
       profile_status: "activo" | "invitado"
-      reservation_status: "pendiente" | "confirmada" | "cancelada" | "pasada"
+      reservation_status:
+        | "pendiente"
+        | "confirmada"
+        | "cancelada"
+        | "finalizada"
       role_type: "admin" | "holder" | "guest"
     }
     CompositeTypes: {
@@ -555,8 +567,19 @@ export const Constants = {
   public: {
     Enums: {
       meal_type: ["Desayuno", "Almuerzo", "Cena"],
+      payment_status_type: [
+        "pendiente",
+        "parcial",
+        "completado",
+        "reembolsado",
+      ],
       profile_status: ["activo", "invitado"],
-      reservation_status: ["pendiente", "confirmada", "cancelada", "pasada"],
+      reservation_status: [
+        "pendiente",
+        "confirmada",
+        "cancelada",
+        "finalizada",
+      ],
       role_type: ["admin", "holder", "guest"],
     },
   },

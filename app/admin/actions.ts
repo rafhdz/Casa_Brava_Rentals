@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient as createServerClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/supabase/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Profile } from "@/lib/AuthContext";
 
@@ -25,40 +25,6 @@ function translateCreateError(message: string): string {
     return "Ya existe un usuario con este correo.";
   }
   return "No se pudo crear el usuario. Intenta de nuevo.";
-}
-
-// Guard compartido por todas las actions de este archivo: confirma sesión
-// activa y role === "admin" en profiles, igual que el guard de /admin en
-// lib/supabase/middleware.ts (fail closed — cualquier caso ambiguo, incluido
-// no poder leer el perfil, se trata como no autorizado). Devuelve el propio
-// cliente autenticado del admin (para que la caller lo reutilice en vez de
-// abrir una segunda conexión) y su userId (para guards como "no te puedes
-// eliminar a ti mismo" en deleteUser).
-async function requireAdmin(): Promise<
-  | { supabase: Awaited<ReturnType<typeof createServerClient>>; userId: string }
-  | { error: string }
-> {
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { error: "No autenticado." };
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return { error: "No autorizado." };
-  }
-
-  return { supabase, userId: user.id };
 }
 
 export async function createUser(
