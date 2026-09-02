@@ -86,6 +86,17 @@ export async function updateUser(
     const auth = await requireAdmin();
     if ("error" in auth) return { error: auth.error };
 
+    // Guard anti-auto-modificación: si el admin se edita a sí mismo, no se
+    // le permite tocar su propio role/status — podría quitarse el rol admin
+    // o suspenderse (status: "invitado") y quedar sin acceso a /admin en su
+    // siguiente navegación, recuperable solo interviniendo la base de datos
+    // a mano (mismo tipo de auto-lockout que ya bloquea deleteUser más
+    // abajo). La UI ya deshabilita estos selects en la propia fila del admin
+    // (ver UsersTable.tsx), pero esta Server Action es el límite real.
+    if (auth.userId === userId) {
+      return { error: "No puedes modificar tu propio rol o estado." };
+    }
+
     // A diferencia de createUser, esto sí puede usar el cliente de sesión
     // estándar (no la Service Role Key): el admin ya está autenticado y esta
     // es una actualización sobre una fila existente, no una llamada a la

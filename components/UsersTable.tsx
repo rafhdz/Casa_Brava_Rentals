@@ -71,12 +71,14 @@ function useCloseOnEscape(onClose: () => void) {
 
 function EditUserModal({
   user,
+  isSelf,
   onClose,
   onSave,
   isPending,
   error,
 }: {
   user: Profile;
+  isSelf: boolean;
   onClose: () => void;
   onSave: (updates: { role: Profile["role"]; status: Profile["status"] }) => void;
   isPending: boolean;
@@ -89,6 +91,7 @@ function EditUserModal({
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (isSelf) return;
     onSave({ role, status });
   }
 
@@ -117,13 +120,20 @@ function EditUserModal({
             <span className="text-neutral-500">{user.email}</span>
           </div>
 
+          {isSelf && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              No puedes modificar tu propio rol o estado.
+            </p>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-sm font-medium text-neutral-700">Rol</span>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as Profile["role"])}
-                className={INPUT_CLASS}
+                disabled={isSelf}
+                className={`${INPUT_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
               >
                 <option value="guest">Huésped</option>
                 <option value="holder">Propietario</option>
@@ -136,7 +146,8 @@ function EditUserModal({
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as Profile["status"])}
-                className={INPUT_CLASS}
+                disabled={isSelf}
+                className={`${INPUT_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
               >
                 <option value="activo">Activo</option>
                 <option value="invitado">Invitado</option>
@@ -150,7 +161,7 @@ function EditUserModal({
             <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
               Cancelar
             </button>
-            <button type="submit" disabled={isPending} className={PRIMARY_BUTTON_CLASS}>
+            <button type="submit" disabled={isPending || isSelf} className={PRIMARY_BUTTON_CLASS}>
               {isPending ? "Guardando…" : "Guardar cambios"}
             </button>
           </div>
@@ -507,6 +518,7 @@ export default function UsersTable({
       {selectedUser && (
         <EditUserModal
           user={selectedUser}
+          isSelf={selectedUser.id === currentUserId}
           onClose={handleCloseEditModal}
           onSave={handleSaveUser}
           isPending={isUpdatePending}
