@@ -95,7 +95,7 @@ export default function RegisterPage() {
 
     if (hasError) return;
 
-    // Mock: no se guarda en mockUsers ni en la sesión — solo simula el registro exitoso.
+    // Mock: no se guarda en Supabase ni en la sesión — solo simula el registro exitoso.
     // La creación real de cuentas llegará con Supabase Auth (ver CLAUDE.md).
     setSuccess(true);
   }

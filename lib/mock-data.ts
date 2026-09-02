@@ -717,41 +717,6 @@ export const PRICING_CONFIG = {
   currency: "USD",
 };
 
-export type UserRole = "admin" | "guest";
-export type UserStatus = "activo" | "invitado";
-
-export type MockUser = {
-  id: string;
-  nombre: string;
-  email: string;
-  rol: UserRole;
-  estado: UserStatus;
-};
-
-export const mockUsers: MockUser[] = [
-  {
-    id: "user-1",
-    nombre: "Rafael Hernández",
-    email: "admin@test.com",
-    rol: "admin",
-    estado: "activo",
-  },
-  {
-    id: "user-2",
-    nombre: "María Gómez",
-    email: "maria.gomez@example.com",
-    rol: "guest",
-    estado: "activo",
-  },
-  {
-    id: "user-3",
-    nombre: "Carlos Ruiz",
-    email: "carlos.ruiz@example.com",
-    rol: "guest",
-    estado: "invitado",
-  },
-];
-
 export type ReservationStatus = "actual" | "futura" | "pasada";
 
 export type MockReservation = {
