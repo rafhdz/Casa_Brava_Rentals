@@ -3,26 +3,33 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
-import {
-  FOOD_AVAILABLE_DATES,
-  FOOD_MENU_OPTIONS,
-  MEAL_TYPES,
-  formatSimulatedDate,
-  type CartItem,
-  type MealType,
-} from "@/lib/mock-data";
+import { FOOD_AVAILABLE_DATES, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
+import type { Enums } from "@/lib/database.types";
 import AddedToCartBanner from "@/components/AddedToCartBanner";
 import Calendar from "@/components/Calendar";
 
-export default function FoodBookingForm() {
+type MenuOption = {
+  id: string;
+  meal_type: Enums<"meal_type">;
+  name: string;
+  price_per_person: number;
+};
+
+// Orden fijo de despliegue de los tiempos de comida — el ENUM real ya trae
+// las cadenas en español, así que se usan directo como value/label sin tabla
+// de traducción aparte.
+const MEAL_TYPE_ORDER: Enums<"meal_type">[] = ["Desayuno", "Almuerzo", "Cena"];
+
+export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
   const { addToCart } = useCart();
   const [day, setDay] = useState("");
-  const [mealType, setMealType] = useState<MealType | "">("");
+  const [mealType, setMealType] = useState<Enums<"meal_type"> | "">("");
   const [menuOptionId, setMenuOptionId] = useState("");
   const [guests, setGuests] = useState(1);
   const [confirmed, setConfirmed] = useState(false);
 
-  const menuOptions = mealType ? FOOD_MENU_OPTIONS[mealType] : [];
+  const availableMealTypes = MEAL_TYPE_ORDER.filter((type) => menus.some((menu) => menu.meal_type === type));
+  const menuOptions = mealType ? menus.filter((menu) => menu.meal_type === mealType) : [];
   const menuOption = menuOptions.find((option) => option.id === menuOptionId) ?? null;
   const canAdd = day !== "" && mealType !== "" && menuOption !== null && guests >= 1;
 
@@ -31,7 +38,7 @@ export default function FoodBookingForm() {
     setConfirmed(false);
   }
 
-  function handleSelectMealType(value: MealType) {
+  function handleSelectMealType(value: Enums<"meal_type">) {
     setMealType(value);
     setMenuOptionId("");
     setConfirmed(false);
@@ -50,20 +57,18 @@ export default function FoodBookingForm() {
   function handleAddToCart() {
     if (!day || !mealType || !menuOption) return;
 
-    const mealTypeLabel = MEAL_TYPES.find((m) => m.id === mealType)?.label ?? mealType;
     const item: CartItem = {
       id: generateCartItemId("comida"),
       serviceType: "comida",
       details: {
         day,
         mealType,
-        mealTypeLabel,
         menuOptionId: menuOption.id,
         menuOptionName: menuOption.name,
         guests,
       },
       quantity: guests,
-      totalPrice: menuOption.price * guests,
+      totalPrice: menuOption.price_per_person * guests,
     };
     addToCart(item);
     setConfirmed(true);
@@ -93,18 +98,18 @@ export default function FoodBookingForm() {
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-neutral-900">2. Elige el tiempo de comida</h2>
         <div className="flex flex-wrap gap-2">
-          {MEAL_TYPES.map((m) => (
+          {availableMealTypes.map((type) => (
             <button
-              key={m.id}
+              key={type}
               type="button"
-              onClick={() => handleSelectMealType(m.id)}
+              onClick={() => handleSelectMealType(type)}
               className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ease-in-out active:scale-95 ${
-                mealType === m.id
+                mealType === type
                   ? "border-neutral-900 bg-neutral-900 text-white"
                   : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
               }`}
             >
-              {m.label}
+              {type}
             </button>
           ))}
         </div>
@@ -131,12 +136,9 @@ export default function FoodBookingForm() {
                   onChange={() => handleSelectMenuOption(option.id)}
                   className="mt-1 h-4 w-4 accent-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/40 focus-visible:ring-offset-2"
                 />
-                <span>
-                  <span className="block text-sm font-semibold text-neutral-900">
-                    {option.name}{" "}
-                    <span className="font-normal text-neutral-500">(${option.price} / persona)</span>
-                  </span>
-                  <span className="block text-sm text-neutral-500">{option.description}</span>
+                <span className="block text-sm font-semibold text-neutral-900">
+                  {option.name}{" "}
+                  <span className="font-normal text-neutral-500">(${option.price_per_person} / persona)</span>
                 </span>
               </label>
             ))}

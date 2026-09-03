@@ -2,16 +2,31 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { useCart } from "@/lib/CartContext";
 import CartItemRow from "@/components/CartItemRow";
+import { checkoutCartServices } from "@/app/actions/checkout";
+import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
 
 export default function CartView() {
   const router = useRouter();
   const { items, isLoading, removeFromCart, clearCart, totalPrice } = useCart();
+  const [error, setError] = useState<string | null>(null);
+  const [isProcessing, startTransition] = useTransition();
 
   function handleCheckout() {
-    clearCart();
-    router.push("/pago-exitoso");
+    setError(null);
+    startTransition(async () => {
+      const result = await checkoutCartServices(items);
+
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+
+      clearCart();
+      router.push("/pago-exitoso");
+    });
   }
 
   if (isLoading) {
@@ -45,12 +60,27 @@ export default function CartView() {
         <span>${totalPrice.toFixed(2)}</span>
       </div>
 
+      {error && (
+        <p className="text-sm text-red-600">
+          {error}
+          {error === RESERVATION_REQUIRED_ERROR && (
+            <>
+              {" "}
+              <Link href="/reservar" className="font-medium underline">
+                Reservar estadía
+              </Link>
+            </>
+          )}
+        </p>
+      )}
+
       <button
         type="button"
+        disabled={isProcessing}
         onClick={handleCheckout}
-        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
+        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
-        Pagar servicios
+        {isProcessing ? "Procesando…" : "Pagar servicios"}
       </button>
     </div>
   );

@@ -3,22 +3,29 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
-import { SPA_MASSEUSES, SPA_SESSION_PRICE, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
+import { SPA_AVAILABILITY, SPA_SESSION_PRICE, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
 import AddedToCartBanner from "@/components/AddedToCartBanner";
 import Calendar, { AVAILABILITY_MODIFIERS_CLASS_NAMES } from "@/components/Calendar";
 
-export default function SpaBookingForm() {
+type MasseuseOption = {
+  id: string;
+  name: string;
+};
+
+export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOption[] }) {
   const { addToCart } = useCart();
   const [masseuseId, setMasseuseId] = useState("");
   const [day, setDay] = useState("");
   const [time, setTime] = useState("");
   const [confirmed, setConfirmed] = useState(false);
 
-  const masseuse = SPA_MASSEUSES.find((m) => m.id === masseuseId) ?? null;
+  const masseuse = masseuses.find((m) => m.id === masseuseId) ?? null;
+  // Disponibilidad simulada (ver lib/mock-data.ts) keyed por nombre — el id real es uuid.
+  const availability = masseuse ? SPA_AVAILABILITY[masseuse.name] : undefined;
   const canAdd = masseuse !== null && day !== "" && time !== "";
 
   function isDayAvailable(date: Date): boolean {
-    return masseuse !== null && masseuse.availableDays.includes(format(date, "yyyy-MM-dd"));
+    return availability !== undefined && availability.availableDays.includes(format(date, "yyyy-MM-dd"));
   }
 
   function handleSelectMasseuse(id: string) {
@@ -58,7 +65,7 @@ export default function SpaBookingForm() {
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-neutral-900">1. Elige tu masajista</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {SPA_MASSEUSES.map((m) => (
+          {masseuses.map((m) => (
             <button
               key={m.id}
               type="button"
@@ -75,7 +82,7 @@ export default function SpaBookingForm() {
         </div>
       </section>
 
-      {masseuse && (
+      {masseuse && availability && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold text-neutral-900">2. Elige el día</h2>
           <p className="text-sm text-neutral-500">
@@ -92,7 +99,7 @@ export default function SpaBookingForm() {
                 available: (date) => isDayAvailable(date) && format(date, "yyyy-MM-dd") !== day,
               }}
               modifiersClassNames={AVAILABILITY_MODIFIERS_CLASS_NAMES}
-              defaultMonth={parseISO(masseuse.availableDays[0])}
+              defaultMonth={parseISO(availability.availableDays[0])}
             />
           </div>
           {day && (
@@ -103,11 +110,11 @@ export default function SpaBookingForm() {
         </section>
       )}
 
-      {masseuse && day && (
+      {masseuse && availability && day && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold text-neutral-900">3. Elige la hora</h2>
           <div className="flex flex-wrap gap-2">
-            {masseuse.availableTimes.map((t) => (
+            {availability.availableTimes.map((t) => (
               <button
                 key={t}
                 type="button"

@@ -6,7 +6,7 @@ function renderTitle(item: CartItem): string {
     case "spa":
       return `Masaje con ${item.details.masseuseName}`;
     case "comida":
-      return `${item.details.mealTypeLabel} — ${item.details.menuOptionName}`;
+      return `${item.details.mealType} — ${item.details.menuOptionName}`;
     case "vinos":
       return "Pedido de vinos";
   }

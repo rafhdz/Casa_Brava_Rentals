@@ -1,6 +1,8 @@
 // Datos mockeados del prototipo visual.
 // TODO(backend): reemplazar por datos reales desde Supabase (ver CLAUDE.md).
 
+import type { Enums } from "@/lib/database.types";
+
 export type Photo = {
   id: string;
   label: string;
@@ -513,95 +515,30 @@ export function formatSimulatedDate(isoDate: string): string {
   return date.toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
 }
 
-export type Masseuse = {
-  id: string;
-  name: string;
-  availableDays: string[]; // fechas ISO simuladas, ej. "2026-09-04"
-  availableTimes: string[]; // horarios simulados, ej. "10:00 AM"
-};
-
-export const SPA_MASSEUSES: Masseuse[] = [
-  {
-    id: "masajista-ana",
-    name: "Ana",
+// Disponibilidad simulada de días/horas por masajista — no existe tabla de
+// disponibilidad real en Supabase (spa_masseuses solo tiene id/name/status),
+// así que este mapa sigue siendo mock a propósito. Keyed por `name` (no por
+// `id`): los ids reales de spa_masseuses son uuid generados por
+// gen_random_uuid() y cambian en cada `supabase db reset`, así que no se
+// pueden hardcodear como llave — el nombre es lo único estable entre reseeds.
+export const SPA_AVAILABILITY: Record<string, { availableDays: string[]; availableTimes: string[] }> = {
+  Ana: {
     availableDays: ["2026-09-02", "2026-09-04", "2026-09-09"],
     availableTimes: ["10:00 AM", "12:00 PM", "2:00 PM", "4:00 PM"],
   },
-  {
-    id: "masajista-carlos",
-    name: "Carlos",
+  Carlos: {
     availableDays: ["2026-09-03", "2026-09-05", "2026-09-10"],
     availableTimes: ["9:00 AM", "11:00 AM", "3:00 PM", "5:00 PM"],
   },
-  {
-    id: "masajista-laura",
-    name: "Laura",
+  Laura: {
     availableDays: ["2026-09-02", "2026-09-06", "2026-09-11"],
     availableTimes: ["10:00 AM", "1:00 PM", "4:00 PM"],
   },
-];
+};
 
+// Precio de sesión de spa — no hay columna de precio en spa_masseuses, sigue
+// siendo un valor mock a propósito.
 export const SPA_SESSION_PRICE = 600;
-
-export type MealType = "desayuno" | "almuerzo" | "cena";
-
-export const MEAL_TYPES: { id: MealType; label: string }[] = [
-  { id: "desayuno", label: "Desayuno" },
-  { id: "almuerzo", label: "Almuerzo" },
-  { id: "cena", label: "Cena" },
-];
-
-export type MenuOption = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-};
-
-export const FOOD_MENU_OPTIONS: Record<MealType, MenuOption[]> = {
-  desayuno: [
-    {
-      id: "desayuno-continental",
-      name: "Continental",
-      description: "Fruta de temporada, pan artesanal, jugo y café de la región.",
-      price: 200,
-    },
-    {
-      id: "desayuno-mexicano",
-      name: "Mexicano",
-      description: "Huevos al gusto, frijoles refritos y salsa casera.",
-      price: 220,
-    },
-  ],
-  almuerzo: [
-    {
-      id: "almuerzo-parrilla",
-      name: "Parrilla norteña",
-      description: "Corte de res a la parrilla con guarniciones locales.",
-      price: 350,
-    },
-    {
-      id: "almuerzo-vegetariano",
-      name: "Vegetariano",
-      description: "Platillo de temporada a base de vegetales de la región.",
-      price: 280,
-    },
-  ],
-  cena: [
-    {
-      id: "cena-degustacion",
-      name: "Menú de degustación",
-      description: "Tres tiempos preparados por el cocinero local.",
-      price: 450,
-    },
-    {
-      id: "cena-ligera",
-      name: "Cena ligera",
-      description: "Ensalada, sopa y plato principal ligero.",
-      price: 300,
-    },
-  ],
-};
 
 export const FOOD_AVAILABLE_DATES: string[] = [
   "2026-09-01",
@@ -611,46 +548,6 @@ export const FOOD_AVAILABLE_DATES: string[] = [
   "2026-09-05",
 ];
 
-export type WineBottle = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-};
-
-export const WINE_BOTTLES: WineBottle[] = [
-  {
-    id: "vino-tinto-parvada",
-    name: "Parvada Tinto",
-    description: "Corte bordelés añejado en barrica.",
-    price: 650,
-  },
-  {
-    id: "vino-blanco-parvada",
-    name: "Parvada Blanco",
-    description: "Chardonnay fresco y afrutado.",
-    price: 580,
-  },
-  {
-    id: "vino-rosado-parvada",
-    name: "Parvada Rosado",
-    description: "Rosado ligero ideal para la terraza.",
-    price: 560,
-  },
-  {
-    id: "vino-espumoso-parvada",
-    name: "Parvada Espumoso",
-    description: "Espumoso brut, perfecto para celebrar.",
-    price: 700,
-  },
-];
-
-export const WINE_PACKAGE = {
-  label: "Paquete de 4 vinos",
-  description: "Selección de 4 botellas mixtas Parvada a precio preferencial.",
-  price: 2250,
-};
-
 export type SpaReservation = {
   masseuseId: string;
   masseuseName: string;
@@ -658,10 +555,13 @@ export type SpaReservation = {
   time: string;
 };
 
+// mealType usa directamente el ENUM real de la base (meal_type: "Desayuno" |
+// "Almuerzo" | "Cena") desde que FoodBookingForm se conectó al catálogo real
+// de food_menus — el valor ya viene en español y sirve como label sin
+// traducción aparte, por eso no hay un campo mealTypeLabel separado.
 export type FoodReservation = {
   day: string; // fecha ISO simulada
-  mealType: MealType;
-  mealTypeLabel: string;
+  mealType: Enums<"meal_type">;
   menuOptionId: string;
   menuOptionName: string;
   guests: number;
@@ -678,41 +578,10 @@ export type WineOrder = {
   bottles: WineOrderBottle[];
   packageQuantity: number;
   packageUnitPrice: number;
+  packageId: string | null; // wine_packages.id real — null si packageQuantity es 0
 };
 
 export type CartItem =
   | { id: string; serviceType: "spa"; details: SpaReservation; quantity: number; totalPrice: number }
   | { id: string; serviceType: "comida"; details: FoodReservation; quantity: number; totalPrice: number }
   | { id: string; serviceType: "vinos"; details: WineOrder; quantity: number; totalPrice: number };
-
-export type FareType = "estandar" | "flexible";
-
-export type FareOption = {
-  id: FareType;
-  title: string;
-  description: string;
-  surchargePercent: number;
-};
-
-export const FARE_OPTIONS: FareOption[] = [
-  {
-    id: "estandar",
-    title: "Tarifa Estándar",
-    description: "No tarifa cancelable. Precio base sin recargos.",
-    surchargePercent: 0,
-  },
-  {
-    id: "flexible",
-    title: "Tarifa Flexible",
-    description:
-      "Cancelable hasta 5 días antes de la llegada. Incluye un recargo del 15%.",
-    surchargePercent: 15,
-  },
-];
-
-// Precios base del prototipo (en USD). Ajustar aquí para la demo.
-export const PRICING_CONFIG = {
-  nightlyRate: 250,
-  securityDeposit: 300,
-  currency: "USD",
-};
