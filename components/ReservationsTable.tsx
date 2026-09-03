@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { differenceInCalendarDays, parseISO } from "date-fns";
+import { Sparkles, Utensils, Wine } from "lucide-react";
 import type { Enums } from "@/lib/database.types";
 import {
   createReservation,
@@ -85,6 +86,50 @@ function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
   );
 }
 
+// Indicadores compactos de servicios adicionales contratados (SPA/Comida/
+// Vinos) para la columna "Servicios" de la tabla — cada ícono lleva su propio
+// `title` (tooltip nativo) en vez de una etiqueta de texto, para no ensanchar
+// la columna. Solo se evalúa si el arreglo correspondiente tiene elementos
+// (length > 0); el conteo exacto no se muestra aquí, ver el detalle día por
+// día en el registro de cada servicio si se necesita a futuro.
+function ServicesIndicators({
+  spaBookings,
+  foodBookings,
+  wineOrders,
+}: {
+  spaBookings: { id: string }[];
+  foodBookings: { id: string }[];
+  wineOrders: { id: string }[];
+}) {
+  const hasSpa = spaBookings.length > 0;
+  const hasFood = foodBookings.length > 0;
+  const hasWine = wineOrders.length > 0;
+
+  if (!hasSpa && !hasFood && !hasWine) {
+    return <span className="text-neutral-400">—</span>;
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 text-neutral-600">
+      {hasSpa && (
+        <span title="SPA / Masajes">
+          <Sparkles className="h-4 w-4" aria-label="SPA / Masajes" />
+        </span>
+      )}
+      {hasFood && (
+        <span title="Comida">
+          <Utensils className="h-4 w-4" aria-label="Comida" />
+        </span>
+      )}
+      {hasWine && (
+        <span title="Vinos">
+          <Wine className="h-4 w-4" aria-label="Vinos" />
+        </span>
+      )}
+    </div>
+  );
+}
+
 const INPUT_CLASS =
   "rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900 transition-all duration-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-neutral-900";
 
@@ -107,6 +152,87 @@ function useCloseOnEscape(onClose: () => void) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+}
+
+type ServiceLine = {
+  key: string;
+  label: string;
+  amount: number;
+};
+
+// Desglose de costos del modal de edición: aplana spa_bookings/food_bookings/
+// wine_orders (con sus items) a una lista plana de líneas de recibo. Todos
+// los montos (`price_per_hour`, `total_price`, `unit_price`) son columnas
+// reales insertadas en el checkout del huésped (ver app/actions/checkout.ts)
+// — snapshots del precio al momento de la compra, no se recalculan aquí a
+// partir del precio actual del catálogo.
+function buildServiceLines(reservation: ReservationWithRelations): ServiceLine[] {
+  const spaLines: ServiceLine[] = reservation.spa_bookings.map((booking) => ({
+    key: `spa-${booking.id}`,
+    label: `Masaje — ${booking.masseuse?.name ?? "Masajista"} (${formatDate(booking.date)})`,
+    amount: booking.price_per_hour,
+  }));
+
+  const foodLines: ServiceLine[] = reservation.food_bookings.map((booking) => ({
+    key: `food-${booking.id}`,
+    label: `${booking.menu?.name ?? "Menú"} — ${booking.meal_type} (x${booking.guests_count})`,
+    amount: booking.total_price,
+  }));
+
+  const wineLines: ServiceLine[] = reservation.wine_orders.flatMap((order) =>
+    order.items.map((item) => ({
+      key: `wine-${item.id}`,
+      label: item.wine
+        ? `Vino ${item.wine.name} (x${item.quantity})`
+        : `Paquete ${item.package?.name ?? "de vinos"} (x${item.quantity})`,
+      amount: item.unit_price * item.quantity,
+    }))
+  );
+
+  return [...spaLines, ...foodLines, ...wineLines];
+}
+
+// Sección visual de solo lectura dentro de EditReservationModal — no forma
+// parte del <form> de status/payment_status, solo da contexto de a qué
+// corresponde el monto total antes de que el admin edite el estado.
+function ServiceBreakdown({ reservation }: { reservation: ReservationWithRelations }) {
+  const serviceLines = buildServiceLines(reservation);
+  const servicesSubtotal = serviceLines.reduce((sum, line) => sum + line.amount, 0);
+  const grandTotal = reservation.total_amount + servicesSubtotal;
+
+  return (
+    <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+      <h3 className="text-sm font-semibold text-neutral-900">Desglose de servicios contratados</h3>
+
+      {serviceLines.length === 0 ? (
+        <p className="mt-2 text-xs text-neutral-400">Sin servicios adicionales contratados.</p>
+      ) : (
+        <ul className="mt-3 flex flex-col gap-1.5">
+          {serviceLines.map((line) => (
+            <li key={line.key} className="flex items-baseline justify-between gap-4 text-xs text-neutral-600">
+              <span className="truncate">{line.label}</span>
+              <span className="shrink-0 tabular-nums text-neutral-900">${line.amount.toFixed(2)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 flex flex-col gap-1 border-t border-neutral-200 pt-3">
+        <div className="flex justify-between text-xs text-neutral-600">
+          <span>Estadía</span>
+          <span className="tabular-nums">${reservation.total_amount.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-xs text-neutral-600">
+          <span>Subtotal servicios</span>
+          <span className="tabular-nums">${servicesSubtotal.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-sm font-semibold text-neutral-900">
+          <span>Gran total</span>
+          <span className="tabular-nums">${grandTotal.toFixed(2)}</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function EditReservationModal({
@@ -144,7 +270,7 @@ function EditReservationModal({
         aria-modal="true"
         aria-labelledby="edit-reservation-modal-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl [animation:modal-in_200ms_ease-out]"
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl [animation:modal-in_200ms_ease-out]"
       >
         <h2 id="edit-reservation-modal-title" className="text-lg font-semibold text-neutral-900">
           Editar reservación
@@ -154,7 +280,10 @@ function EditReservationModal({
         </p>
         <p className="mt-2 text-xs text-neutral-400">
           {formatDate(reservation.check_in)} – {formatDate(reservation.check_out)}
+          {reservation.fare_type && ` · ${reservation.fare_type.name}`}
         </p>
+
+        <ServiceBreakdown reservation={reservation} />
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-4">
@@ -594,23 +723,24 @@ export default function ReservationsTable({
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
-        <table className="w-full min-w-[900px] text-left text-sm">
+      <div className="block w-full max-w-full overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
+        <table className="w-full min-w-[1080px] text-left text-sm">
           <thead>
             <tr className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500">
-              <th className="px-4 py-3 font-medium">Huésped</th>
-              <th className="px-4 py-3 font-medium">Fechas</th>
-              <th className="px-4 py-3 font-medium">Tarifa</th>
-              <th className="px-4 py-3 font-medium">Monto</th>
-              <th className="px-4 py-3 font-medium">Estado</th>
-              <th className="px-4 py-3 font-medium">Pago</th>
-              <th className="px-4 py-3 font-medium">Acciones</th>
+              <th className="min-w-[200px] px-4 py-3 font-medium">Huésped</th>
+              <th className="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">Fechas</th>
+              <th className="whitespace-nowrap px-4 py-3 font-medium">Tarifa</th>
+              <th className="min-w-[110px] whitespace-nowrap px-4 py-3 font-medium">Servicios</th>
+              <th className="whitespace-nowrap px-4 py-3 font-medium">Monto</th>
+              <th className="whitespace-nowrap px-4 py-3 font-medium">Estado</th>
+              <th className="whitespace-nowrap px-4 py-3 font-medium">Pago</th>
+              <th className="min-w-[160px] whitespace-nowrap px-4 py-3 font-medium">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {reservations.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-sm text-neutral-500">
+                <td colSpan={8} className="px-4 py-6 text-center text-sm text-neutral-500">
                   Todavía no hay reservaciones registradas.
                 </td>
               </tr>
@@ -625,18 +755,29 @@ export default function ReservationsTable({
                       <div className="text-xs text-neutral-500">{reservation.guest.email}</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-neutral-600">
+                  <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
                     {formatDate(reservation.check_in)} – {formatDate(reservation.check_out)}
                   </td>
-                  <td className="px-4 py-3 text-neutral-600">{reservation.fare_type?.name ?? "—"}</td>
-                  <td className="px-4 py-3 text-neutral-600">${reservation.total_amount.toFixed(2)}</td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
+                    {reservation.fare_type?.name ?? "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <ServicesIndicators
+                      spaBookings={reservation.spa_bookings}
+                      foodBookings={reservation.food_bookings}
+                      wineOrders={reservation.wine_orders}
+                    />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
+                    ${reservation.total_amount.toFixed(2)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
                     <ReservationStatusBadge status={reservation.status} />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     <PaymentStatusBadge status={reservation.payment_status} />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex gap-2">
                       <button
                         type="button"

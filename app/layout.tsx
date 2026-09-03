@@ -31,7 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <AuthProvider>
           <CartProvider>
             <Navbar />
-            <main className="flex-1">{children}</main>
+            <main className="min-w-0 flex-1">{children}</main>
             <Footer />
           </CartProvider>
         </AuthProvider>

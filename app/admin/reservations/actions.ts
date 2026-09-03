@@ -18,9 +18,40 @@ type QueryResult<T> = { data: T } | { error: string };
 // inferencia a nivel de query builder) — este tipo se autoría a mano y se
 // castea sobre el resultado de getReservations() con una aserción
 // justificada, siguiendo la regla de "any solo cuando se justifica".
+// Detalle de cada servicio contratado — la forma exacta que necesita el
+// desglose de costos del modal de edición (ver EditReservationModal en
+// ReservationsTable.tsx), con el catálogo relacionado (masajista/menú/vino/
+// paquete) ya incluido vía JOIN. Los precios (`price_per_hour`, `total_price`,
+// `unit_price`) son columnas reales de la fila del booking/order/item —
+// snapshot del precio al momento del checkout (ver app/actions/checkout.ts) —
+// no se recalculan aquí a partir del precio actual del catálogo, que puede
+// haber cambiado desde entonces.
+export type SpaBookingWithMasseuse = Pick<Tables<"spa_bookings">, "id" | "date" | "time" | "price_per_hour"> & {
+  masseuse: Pick<Tables<"spa_masseuses">, "name"> | null;
+};
+
+export type FoodBookingWithMenu = Pick<
+  Tables<"food_bookings">,
+  "id" | "date" | "meal_type" | "guests_count" | "total_price"
+> & {
+  menu: Pick<Tables<"food_menus">, "name" | "price_per_person"> | null;
+};
+
+export type WineOrderItemWithCatalog = Pick<Tables<"wine_order_items">, "id" | "quantity" | "unit_price"> & {
+  wine: Pick<Tables<"wines">, "name" | "price"> | null;
+  package: Pick<Tables<"wine_packages">, "name" | "price"> | null;
+};
+
+export type WineOrderWithItems = Pick<Tables<"wine_orders">, "id" | "total_price"> & {
+  items: WineOrderItemWithCatalog[];
+};
+
 export type ReservationWithRelations = Tables<"reservations"> & {
   guest: Pick<Profile, "id" | "first_name" | "apellido_paterno" | "apellido_materno" | "email"> | null;
   fare_type: Pick<Tables<"fare_types">, "id" | "name" | "surcharge_percentage"> | null;
+  spa_bookings: SpaBookingWithMasseuse[];
+  food_bookings: FoodBookingWithMenu[];
+  wine_orders: WineOrderWithItems[];
 };
 
 export type GuestOption = Pick<
@@ -50,7 +81,12 @@ export async function getReservations(): Promise<QueryResult<ReservationWithRela
     const { data, error } = await auth.supabase
       .from("reservations")
       .select(
-        "*, guest:profiles(id, first_name, apellido_paterno, apellido_materno, email), fare_type:fare_types(id, name, surcharge_percentage)"
+        `*,
+        guest:profiles(id, first_name, apellido_paterno, apellido_materno, email),
+        fare_type:fare_types(id, name, surcharge_percentage),
+        spa_bookings(id, date, time, price_per_hour, masseuse:spa_masseuses(name)),
+        food_bookings(id, date, meal_type, guests_count, total_price, menu:food_menus(name, price_per_person)),
+        wine_orders(id, total_price, items:wine_order_items(id, quantity, unit_price, wine:wines(name, price), package:wine_packages(name, price)))`
       )
       .is("deleted_at", null)
       .order("check_in", { ascending: true });

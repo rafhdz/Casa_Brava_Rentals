@@ -24,7 +24,7 @@ export default async function AdminReservationsPage() {
     !propertySettingsResult.data;
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
+    <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
       <BackButton />
 
       <div>
