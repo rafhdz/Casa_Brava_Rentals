@@ -420,7 +420,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      current_user_role: {
+        Args: never
+        Returns: Database["public"]["Enums"]["role_type"]
+      }
     }
     Enums: {
       meal_type: "Desayuno" | "Almuerzo" | "Cena"
