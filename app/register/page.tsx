@@ -2,8 +2,11 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { compensateFailedRegistration } from "@/app/register/actions";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
 
 // Ladas de ejemplo para el prototipo — no vive en lib/mock-data.ts porque no es un dato de
 // negocio (precio/amenidad/servicio), es configuración fija del propio input de teléfono.
@@ -21,6 +24,23 @@ const inputClassName = (hasError: boolean) =>
       : "border-neutral-200 focus:ring-neutral-900"
   }`;
 
+// Traduce los mensajes de AuthApiError de Supabase a español, mismo patrón que
+// translateAuthError en app/login/page.tsx — solo cubre lo que un huésped
+// realmente puede provocar desde este formulario.
+function translateSignUpError(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("already registered") || normalized.includes("already been registered")) {
+    return "Ya existe una cuenta con este correo.";
+  }
+  if (normalized.includes("password should be at least")) {
+    return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`;
+  }
+  if (normalized.includes("unable to validate email") || normalized.includes("invalid email")) {
+    return "Ingresa un correo electrónico válido.";
+  }
+  return "No pudimos completar tu registro. Intenta de nuevo.";
+}
+
 export default function RegisterPage() {
   const router = useRouter();
 
@@ -30,13 +50,19 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [countryCode, setCountryCode] = useState(COUNTRY_CODES[0].dial);
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [nombreError, setNombreError] = useState<string | null>(null);
   const [apellidoPaternoError, setApellidoPaternoError] = useState<string | null>(null);
   const [apellidoMaternoError, setApellidoMaternoError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
@@ -45,8 +71,9 @@ export default function RegisterPage() {
     return () => clearTimeout(timer);
   }, [success, router]);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setFormError(null);
 
     const trimmedNombre = nombre.trim();
     const trimmedApellidoPaterno = apellidoPaterno.trim();
@@ -69,12 +96,10 @@ export default function RegisterPage() {
       setApellidoPaternoError(null);
     }
 
-    if (!trimmedApellidoMaterno) {
-      setApellidoMaternoError("El apellido materno es obligatorio.");
-      hasError = true;
-    } else {
-      setApellidoMaternoError(null);
-    }
+    // Apellido materno es opcional (coincide con `apellido_materno` nullable
+    // en profiles) — a diferencia de nombre/apellido paterno, no se valida
+    // como obligatorio.
+    setApellidoMaternoError(null);
 
     if (!trimmedEmail) {
       setEmailError("El correo electrónico es obligatorio.");
@@ -93,10 +118,83 @@ export default function RegisterPage() {
       setPhoneError(null);
     }
 
+    if (!password) {
+      setPasswordError("La contraseña es obligatoria.");
+      hasError = true;
+    } else if (password.length < MIN_PASSWORD_LENGTH) {
+      setPasswordError(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+      hasError = true;
+    } else {
+      setPasswordError(null);
+    }
+
+    if (!confirmPassword) {
+      setConfirmPasswordError("Confirma tu contraseña.");
+      hasError = true;
+    } else if (confirmPassword !== password) {
+      setConfirmPasswordError("Las contraseñas no coinciden.");
+      hasError = true;
+    } else {
+      setConfirmPasswordError(null);
+    }
+
     if (hasError) return;
 
-    // Mock: no se guarda en Supabase ni en la sesión — solo simula el registro exitoso.
-    // La creación real de cuentas llegará con Supabase Auth (ver CLAUDE.md).
+    setIsSubmitting(true);
+
+    const supabase = createClient();
+    const { data, error } = await supabase.auth.signUp({
+      email: trimmedEmail,
+      password,
+    });
+
+    if (error) {
+      setIsSubmitting(false);
+      setFormError(translateSignUpError(error.message));
+      return;
+    }
+
+    if (!data.user) {
+      setIsSubmitting(false);
+      setFormError("No pudimos completar tu registro. Intenta de nuevo.");
+      return;
+    }
+
+    const { error: profileError } = await supabase.from("profiles").insert({
+      id: data.user.id,
+      email: trimmedEmail,
+      first_name: trimmedNombre,
+      apellido_paterno: trimmedApellidoPaterno,
+      apellido_materno: trimmedApellidoMaterno || null,
+      role: "guest",
+      status: "activo",
+    });
+
+    if (profileError) {
+      // El perfil no se pudo crear pero la cuenta de Auth ya existe — revertir
+      // para no dejar un usuario huérfano (con cuenta pero sin perfil) que
+      // dejaría ese correo "ocupado" y bloquearía cualquier reintento. Ver el
+      // detalle del guard de propiedad en app/register/actions.ts.
+      const compensation = await compensateFailedRegistration(data.user.id);
+      setIsSubmitting(false);
+      setFormError(
+        "error" in compensation
+          ? "No se pudo completar tu registro y no pudimos revertirlo automáticamente. Contacta a soporte."
+          : "No se pudo completar tu registro. Intenta de nuevo."
+      );
+      return;
+    }
+
+    setIsSubmitting(false);
+
+    if (data.session) {
+      // Confirmación de correo deshabilitada en el proyecto: signUp ya dejó
+      // una sesión activa, así que no hace falta pasar por /login.
+      router.push("/");
+      router.refresh();
+      return;
+    }
+
     setSuccess(true);
   }
 
@@ -115,12 +213,19 @@ export default function RegisterPage() {
       <div className="mt-8 w-full rounded-2xl border border-neutral-200 bg-white p-8 shadow-lg">
         {success && (
           <p className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
-            Registro completado con éxito. Redirigiendo...
+            Registro completado con éxito. Revisa tu correo si se requiere confirmación, o
+            inicia sesión directamente. Redirigiendo a /login...
+          </p>
+        )}
+
+        {formError && (
+          <p className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+            {formError}
           </p>
         )}
 
         <form onSubmit={handleSubmit} noValidate className="flex w-full flex-col gap-4">
-          <fieldset disabled={success} className="flex w-full flex-col gap-4">
+          <fieldset disabled={success || isSubmitting} className="flex w-full flex-col gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-sm font-medium text-neutral-700">Nombre(s)</span>
               <input
@@ -156,7 +261,9 @@ export default function RegisterPage() {
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-neutral-700">Apellido Materno</span>
+              <span className="text-sm font-medium text-neutral-700">
+                Apellido Materno <span className="font-normal text-neutral-400">(opcional)</span>
+              </span>
               <input
                 type="text"
                 autoComplete="additional-name"
@@ -220,11 +327,45 @@ export default function RegisterPage() {
               {phoneError && <p className="text-xs text-red-600">{phoneError}</p>}
             </div>
 
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-neutral-700">Contraseña</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (passwordError) setPasswordError(null);
+                }}
+                placeholder="••••••••"
+                className={inputClassName(!!passwordError)}
+              />
+              {passwordError && <p className="text-xs text-red-600">{passwordError}</p>}
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-neutral-700">Confirmar contraseña</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  if (confirmPasswordError) setConfirmPasswordError(null);
+                }}
+                placeholder="••••••••"
+                className={inputClassName(!!confirmPasswordError)}
+              />
+              {confirmPasswordError && (
+                <p className="text-xs text-red-600">{confirmPasswordError}</p>
+              )}
+            </label>
+
             <button
               type="submit"
               className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {success ? "Redirigiendo..." : "Registrarse"}
+              {success ? "Redirigiendo..." : isSubmitting ? "Registrando…" : "Registrarse"}
             </button>
           </fieldset>
         </form>
