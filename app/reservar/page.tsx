@@ -4,12 +4,17 @@ import ReservarForm from "@/components/ReservarForm";
 
 export default async function ReservarPage() {
   const supabase = await createClient();
-  const [{ data: fareTypes }, { data: propertySettings }] = await Promise.all([
+  const [{ data: fareTypes }, { data: propertySettings }, { data: bookedRanges }] = await Promise.all([
     supabase
       .from("fare_types")
       .select("id, name, surcharge_percentage")
       .order("surcharge_percentage", { ascending: true }),
     supabase.from("property_settings").select("nightly_rate, security_deposit").single(),
+    supabase
+      .from("reservations")
+      .select("check_in, check_out")
+      .eq("status", "confirmada")
+      .is("deleted_at", null),
   ]);
 
   return (
@@ -24,6 +29,7 @@ export default async function ReservarPage() {
       <ReservarForm
         fareTypes={fareTypes ?? []}
         propertySettings={propertySettings ?? { nightly_rate: 0, security_deposit: 0 }}
+        bookedRanges={bookedRanges ?? []}
       />
     </div>
   );

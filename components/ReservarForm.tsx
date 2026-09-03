@@ -18,6 +18,11 @@ type PropertySettings = {
   security_deposit: number;
 };
 
+type BookedRange = {
+  check_in: string;
+  check_out: string;
+};
+
 function calculateNights(checkIn: string, checkOut: string): number {
   if (!checkIn || !checkOut) return 0;
   const start = new Date(checkIn);
@@ -29,9 +34,11 @@ function calculateNights(checkIn: string, checkOut: string): number {
 export default function ReservarForm({
   fareTypes,
   propertySettings,
+  bookedRanges,
 }: {
   fareTypes: FareTypeOption[];
   propertySettings: PropertySettings;
+  bookedRanges: BookedRange[];
 }) {
   const router = useRouter();
   const [checkIn, setCheckIn] = useState("");
@@ -75,6 +82,7 @@ export default function ReservarForm({
           checkOut={checkOut}
           onCheckInChange={setCheckIn}
           onCheckOutChange={setCheckOut}
+          bookedRanges={bookedRanges}
         />
         {checkIn && checkOut && nights === 0 && (
           <p className="text-sm text-red-600">
