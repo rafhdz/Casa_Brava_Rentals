@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition, type FormEvent } from "react";
+import { toast } from "sonner";
 import type { Profile } from "@/lib/AuthContext";
 import { createUser, deleteUser, updateUser } from "@/app/admin/actions";
 
@@ -75,14 +76,12 @@ function EditUserModal({
   onClose,
   onSave,
   isPending,
-  error,
 }: {
   user: Profile;
   isSelf: boolean;
   onClose: () => void;
   onSave: (updates: { role: Profile["role"]; status: Profile["status"] }) => void;
   isPending: boolean;
-  error: string | null;
 }) {
   const [role, setRole] = useState<Profile["role"]>(user.role);
   const [status, setStatus] = useState<Profile["status"]>(user.status);
@@ -155,14 +154,12 @@ function EditUserModal({
             </label>
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
-
           <div className="mt-2 flex justify-end gap-3">
             <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
               Cancelar
             </button>
             <button type="submit" disabled={isPending || isSelf} className={PRIMARY_BUTTON_CLASS}>
-              {isPending ? "Guardando…" : "Guardar cambios"}
+              Guardar cambios
             </button>
           </div>
         </form>
@@ -183,12 +180,10 @@ function CreateUserModal({
   onClose,
   onCreate,
   isPending,
-  error,
 }: {
   onClose: () => void;
   onCreate: (data: CreateUserFormData) => void;
   isPending: boolean;
-  error: string | null;
 }) {
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -283,14 +278,12 @@ function CreateUserModal({
             </select>
           </label>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
-
           <div className="mt-2 flex justify-end gap-3">
             <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
               Cancelar
             </button>
             <button type="submit" disabled={isPending} className={PRIMARY_BUTTON_CLASS}>
-              {isPending ? "Creando…" : "Crear usuario"}
+              Crear usuario
             </button>
           </div>
         </form>
@@ -304,13 +297,11 @@ function DeleteUserModal({
   onClose,
   onConfirm,
   isPending,
-  error,
 }: {
   user: Profile;
   onClose: () => void;
   onConfirm: () => void;
   isPending: boolean;
-  error: string | null;
 }) {
   useCloseOnEscape(onClose);
 
@@ -335,14 +326,12 @@ function DeleteUserModal({
           borrará su cuenta de acceso y su perfil. Esta acción no se puede deshacer.
         </p>
 
-        {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
-
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
             Cancelar
           </button>
           <button type="button" onClick={onConfirm} disabled={isPending} className={DANGER_BUTTON_CLASS}>
-            {isPending ? "Eliminando…" : "Eliminar"}
+            Eliminar
           </button>
         </div>
       </div>
@@ -360,21 +349,16 @@ export default function UsersTable({
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<Profile | null>(null);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isUpdatePending, startUpdateTransition] = useTransition();
   const [isCreatePending, startCreateTransition] = useTransition();
   const [isDeletePending, startDeleteTransition] = useTransition();
 
   function handleEditClick(user: Profile) {
-    setEditError(null);
     setSelectedUser(user);
   }
 
   function handleCloseEditModal() {
     setSelectedUser(null);
-    setEditError(null);
   }
 
   function handleSaveUser(updates: { role: Profile["role"]; status: Profile["status"] }) {
@@ -384,21 +368,20 @@ export default function UsersTable({
     startUpdateTransition(async () => {
       const result = await updateUser(userId, updates);
       if ("error" in result) {
-        setEditError(result.error);
+        toast.error(result.error);
         return;
       }
       handleCloseEditModal();
+      toast.success("Usuario actualizado correctamente.");
     });
   }
 
   function handleOpenCreateModal() {
-    setCreateError(null);
     setIsCreateModalOpen(true);
   }
 
   function handleCloseCreateModal() {
     setIsCreateModalOpen(false);
-    setCreateError(null);
   }
 
   function handleCreateUser(formData: CreateUserFormData) {
@@ -411,21 +394,20 @@ export default function UsersTable({
         formData.role
       );
       if ("error" in result) {
-        setCreateError(result.error);
+        toast.error(result.error);
         return;
       }
       handleCloseCreateModal();
+      toast.success("Usuario creado correctamente.");
     });
   }
 
   function handleDeleteClick(user: Profile) {
-    setDeleteError(null);
     setUserToDelete(user);
   }
 
   function handleCloseDeleteModal() {
     setUserToDelete(null);
-    setDeleteError(null);
   }
 
   function handleConfirmDelete() {
@@ -435,10 +417,11 @@ export default function UsersTable({
     startDeleteTransition(async () => {
       const result = await deleteUser(userId);
       if ("error" in result) {
-        setDeleteError(result.error);
+        toast.error(result.error);
         return;
       }
       handleCloseDeleteModal();
+      toast.success("Usuario eliminado correctamente.");
     });
   }
 
@@ -522,7 +505,6 @@ export default function UsersTable({
           onClose={handleCloseEditModal}
           onSave={handleSaveUser}
           isPending={isUpdatePending}
-          error={editError}
         />
       )}
 
@@ -531,7 +513,6 @@ export default function UsersTable({
           onClose={handleCloseCreateModal}
           onCreate={handleCreateUser}
           isPending={isCreatePending}
-          error={createError}
         />
       )}
 
@@ -541,7 +522,6 @@ export default function UsersTable({
           onClose={handleCloseDeleteModal}
           onConfirm={handleConfirmDelete}
           isPending={isDeletePending}
-          error={deleteError}
         />
       )}
     </>

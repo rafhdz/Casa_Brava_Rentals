@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
+import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import { SPA_AVAILABILITY, SPA_SESSION_PRICE, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
-import AddedToCartBanner from "@/components/AddedToCartBanner";
 import Calendar, { AVAILABILITY_MODIFIERS_CLASS_NAMES } from "@/components/Calendar";
 
 type MasseuseOption = {
@@ -13,11 +14,11 @@ type MasseuseOption = {
 };
 
 export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOption[] }) {
+  const router = useRouter();
   const { addToCart } = useCart();
   const [masseuseId, setMasseuseId] = useState("");
   const [day, setDay] = useState("");
   const [time, setTime] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
 
   const masseuse = masseuses.find((m) => m.id === masseuseId) ?? null;
   // Disponibilidad simulada (ver lib/mock-data.ts) keyed por nombre — el id real es uuid.
@@ -32,18 +33,15 @@ export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOptio
     setMasseuseId(id);
     setDay("");
     setTime("");
-    setConfirmed(false);
   }
 
   function handleSelectDay(value: string) {
     setDay(value);
     setTime("");
-    setConfirmed(false);
   }
 
   function handleSelectTime(value: string) {
     setTime(value);
-    setConfirmed(false);
   }
 
   function handleAddToCart() {
@@ -57,7 +55,9 @@ export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOptio
       totalPrice: SPA_SESSION_PRICE,
     };
     addToCart(item);
-    setConfirmed(true);
+    toast.success("Sesión de spa agregada al carrito.", {
+      action: { label: "Ver carrito", onClick: () => router.push("/carrito") },
+    });
   }
 
   return (
@@ -131,8 +131,6 @@ export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOptio
           </div>
         </section>
       )}
-
-      {confirmed && <AddedToCartBanner message="Sesión de spa agregada al carrito." />}
 
       <button
         type="button"

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
+import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import { FOOD_AVAILABLE_DATES, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
 import type { Enums } from "@/lib/database.types";
-import AddedToCartBanner from "@/components/AddedToCartBanner";
 import Calendar from "@/components/Calendar";
 
 type MenuOption = {
@@ -21,12 +22,12 @@ type MenuOption = {
 const MEAL_TYPE_ORDER: Enums<"meal_type">[] = ["Desayuno", "Almuerzo", "Cena"];
 
 export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
+  const router = useRouter();
   const { addToCart } = useCart();
   const [day, setDay] = useState("");
   const [mealType, setMealType] = useState<Enums<"meal_type"> | "">("");
   const [menuOptionId, setMenuOptionId] = useState("");
   const [guests, setGuests] = useState(1);
-  const [confirmed, setConfirmed] = useState(false);
 
   const availableMealTypes = MEAL_TYPE_ORDER.filter((type) => menus.some((menu) => menu.meal_type === type));
   const menuOptions = mealType ? menus.filter((menu) => menu.meal_type === mealType) : [];
@@ -35,23 +36,19 @@ export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
 
   function handleSelectDay(value: string) {
     setDay(value);
-    setConfirmed(false);
   }
 
   function handleSelectMealType(value: Enums<"meal_type">) {
     setMealType(value);
     setMenuOptionId("");
-    setConfirmed(false);
   }
 
   function handleSelectMenuOption(value: string) {
     setMenuOptionId(value);
-    setConfirmed(false);
   }
 
   function handleGuestsChange(value: number) {
     setGuests(Number.isNaN(value) || value < 1 ? 1 : value);
-    setConfirmed(false);
   }
 
   function handleAddToCart() {
@@ -71,7 +68,9 @@ export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
       totalPrice: menuOption.price_per_person * guests,
     };
     addToCart(item);
-    setConfirmed(true);
+    toast.success("Reservación de comida agregada al carrito.", {
+      action: { label: "Ver carrito", onClick: () => router.push("/carrito") },
+    });
   }
 
   return (
@@ -168,8 +167,6 @@ export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
           </div>
         </section>
       )}
-
-      {confirmed && <AddedToCartBanner message="Reservación de comida agregada al carrito." />}
 
       <button
         type="button"

@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { Sparkles, Utensils, Wine } from "lucide-react";
+import { toast } from "sonner";
 import type { Enums } from "@/lib/database.types";
 import {
   createReservation,
@@ -240,13 +241,11 @@ function EditReservationModal({
   onClose,
   onSave,
   isPending,
-  error,
 }: {
   reservation: ReservationWithRelations;
   onClose: () => void;
   onSave: (updates: { status: ReservationStatus; payment_status: PaymentStatus }) => void;
   isPending: boolean;
-  error: string | null;
 }) {
   const [status, setStatus] = useState<ReservationStatus>(reservation.status);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(reservation.payment_status);
@@ -316,14 +315,12 @@ function EditReservationModal({
             </label>
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
-
           <div className="mt-2 flex justify-end gap-3">
             <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
               Cancelar
             </button>
             <button type="submit" disabled={isPending} className={PRIMARY_BUTTON_CLASS}>
-              {isPending ? "Guardando…" : "Guardar cambios"}
+              Guardar cambios
             </button>
           </div>
         </form>
@@ -339,7 +336,6 @@ function CreateReservationModal({
   onClose,
   onCreate,
   isPending,
-  error,
 }: {
   guests: GuestOption[];
   fareTypes: FareTypeOption[];
@@ -347,7 +343,6 @@ function CreateReservationModal({
   onClose: () => void;
   onCreate: (data: CreateReservationInput) => void;
   isPending: boolean;
-  error: string | null;
 }) {
   const [guestId, setGuestId] = useState(guests[0]?.id ?? "");
   const [checkIn, setCheckIn] = useState("");
@@ -517,14 +512,12 @@ function CreateReservationModal({
             </label>
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
-
           <div className="mt-2 flex justify-end gap-3">
             <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
               Cancelar
             </button>
             <button type="submit" disabled={isPending} className={PRIMARY_BUTTON_CLASS}>
-              {isPending ? "Creando…" : "Crear reservación"}
+              Crear reservación
             </button>
           </div>
         </form>
@@ -538,13 +531,11 @@ function DeleteReservationModal({
   onClose,
   onConfirm,
   isPending,
-  error,
 }: {
   reservation: ReservationWithRelations;
   onClose: () => void;
   onConfirm: () => void;
   isPending: boolean;
-  error: string | null;
 }) {
   // Doble confirmación en dos pasos dentro del mismo modal — ver CLAUDE.md,
   // "CRUD de reservaciones". Se reinicia solo cada vez que el modal se
@@ -593,8 +584,6 @@ function DeleteReservationModal({
               puede deshacer desde la interfaz.
             </p>
 
-            {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
-
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
@@ -605,7 +594,7 @@ function DeleteReservationModal({
                 Atrás
               </button>
               <button type="button" onClick={onConfirm} disabled={isPending} className={DANGER_BUTTON_CLASS}>
-                {isPending ? "Eliminando…" : "Sí, eliminar reserva"}
+                Sí, eliminar reserva
               </button>
             </div>
           </>
@@ -629,9 +618,6 @@ export default function ReservationsTable({
   const [selectedReservation, setSelectedReservation] = useState<ReservationWithRelations | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [reservationToDelete, setReservationToDelete] = useState<ReservationWithRelations | null>(null);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isUpdatePending, startUpdateTransition] = useTransition();
   const [isCreatePending, startCreateTransition] = useTransition();
   const [isDeletePending, startDeleteTransition] = useTransition();
@@ -639,13 +625,11 @@ export default function ReservationsTable({
   const canCreate = guests.length > 0 && fareTypes.length > 0;
 
   function handleEditClick(reservation: ReservationWithRelations) {
-    setEditError(null);
     setSelectedReservation(reservation);
   }
 
   function handleCloseEditModal() {
     setSelectedReservation(null);
-    setEditError(null);
   }
 
   function handleSaveReservation(updates: { status: ReservationStatus; payment_status: PaymentStatus }) {
@@ -655,42 +639,40 @@ export default function ReservationsTable({
     startUpdateTransition(async () => {
       const result = await updateReservation(reservationId, updates);
       if ("error" in result) {
-        setEditError(result.error);
+        toast.error(result.error);
         return;
       }
       handleCloseEditModal();
+      toast.success("Reservación actualizada correctamente.");
     });
   }
 
   function handleOpenCreateModal() {
-    setCreateError(null);
     setIsCreateModalOpen(true);
   }
 
   function handleCloseCreateModal() {
     setIsCreateModalOpen(false);
-    setCreateError(null);
   }
 
   function handleCreateReservation(data: CreateReservationInput) {
     startCreateTransition(async () => {
       const result = await createReservation(data);
       if ("error" in result) {
-        setCreateError(result.error);
+        toast.error(result.error);
         return;
       }
       handleCloseCreateModal();
+      toast.success("Reservación creada correctamente.");
     });
   }
 
   function handleDeleteClick(reservation: ReservationWithRelations) {
-    setDeleteError(null);
     setReservationToDelete(reservation);
   }
 
   function handleCloseDeleteModal() {
     setReservationToDelete(null);
-    setDeleteError(null);
   }
 
   function handleConfirmDelete() {
@@ -700,10 +682,11 @@ export default function ReservationsTable({
     startDeleteTransition(async () => {
       const result = await deleteReservation(reservationId);
       if ("error" in result) {
-        setDeleteError(result.error);
+        toast.error(result.error);
         return;
       }
       handleCloseDeleteModal();
+      toast.success("Reservación eliminada correctamente.");
     });
   }
 
@@ -808,7 +791,6 @@ export default function ReservationsTable({
           onClose={handleCloseEditModal}
           onSave={handleSaveReservation}
           isPending={isUpdatePending}
-          error={editError}
         />
       )}
 
@@ -820,7 +802,6 @@ export default function ReservationsTable({
           onClose={handleCloseCreateModal}
           onCreate={handleCreateReservation}
           isPending={isCreatePending}
-          error={createError}
         />
       )}
 
@@ -830,7 +811,6 @@ export default function ReservationsTable({
           onClose={handleCloseDeleteModal}
           onConfirm={handleConfirmDelete}
           isPending={isDeletePending}
-          error={deleteError}
         />
       )}
     </>

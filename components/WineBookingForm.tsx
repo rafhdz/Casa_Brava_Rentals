@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import type { CartItem, WineOrderBottle } from "@/lib/mock-data";
-import AddedToCartBanner from "@/components/AddedToCartBanner";
 
 type WineOption = {
   id: string;
@@ -25,10 +26,10 @@ export default function WineBookingForm({
   wines: WineOption[];
   winePackage: WinePackageOption | null;
 }) {
+  const router = useRouter();
   const { addToCart } = useCart();
   const [bottleQuantities, setBottleQuantities] = useState<Record<string, number>>({});
   const [packageQuantity, setPackageQuantity] = useState(0);
-  const [confirmed, setConfirmed] = useState(false);
 
   const totalBottles = Object.values(bottleQuantities).reduce((sum, qty) => sum + qty, 0);
   const canAdd = totalBottles > 0 || packageQuantity > 0;
@@ -45,12 +46,10 @@ export default function WineBookingForm({
       const next = Math.max(0, (prev[bottleId] ?? 0) + delta);
       return { ...prev, [bottleId]: next };
     });
-    setConfirmed(false);
   }
 
   function handlePackageQuantityChange(delta: number) {
     setPackageQuantity((prev) => Math.max(0, prev + delta));
-    setConfirmed(false);
   }
 
   function handleAddToCart() {
@@ -80,7 +79,9 @@ export default function WineBookingForm({
     addToCart(item);
     setBottleQuantities({});
     setPackageQuantity(0);
-    setConfirmed(true);
+    toast.success("Pedido de vinos agregado al carrito.", {
+      action: { label: "Ver carrito", onClick: () => router.push("/carrito") },
+    });
   }
 
   return (
@@ -154,8 +155,6 @@ export default function WineBookingForm({
       {canAdd && (
         <p className="text-sm font-medium text-neutral-900">Total del pedido: ${orderTotal.toFixed(2)}</p>
       )}
-
-      {confirmed && <AddedToCartBanner message="Pedido de vinos agregado al carrito." />}
 
       <button
         type="button"
