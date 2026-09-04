@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/supabase/require-admin";
+import type { createClient as createServerClient } from "@/lib/supabase/server";
 import {
   OVERLAP_ERROR,
   validateDates,
@@ -73,6 +74,60 @@ export type CreateReservationInput = {
 
 export type UpdateReservationInput = Partial<CreateReservationInput>;
 
+// Devuelve los bloques de spa_availability tomados por esta reservación al
+// inventario disponible, sin borrar sus spa_bookings (el historial de
+// servicios contratados se conserva — es lo que muestra el desglose de costos
+// del modal de edición). Se llama al cancelar y al hacer soft delete: en ambos
+// casos la reservación deja de ocupar el calendario, así que sus horarios
+// tienen que volver a estar a la venta.
+//
+// Si el update de la reservación ya se aplicó y esto falla, NO se silencia: se
+// devuelve un error que dice explícitamente que la operación principal sí se
+// guardó, para que el admin sepa que lo único pendiente es revisar la
+// disponibilidad — un fallo silencioso aquí volvería a dejar inventario
+// bloqueado sin que nadie se entere, que es justo lo que este cambio corrige.
+async function releaseSpaSlots(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  reservationId: string
+): Promise<{ error: string } | null> {
+  const { error } = await supabase.rpc("release_spa_slots_for_reservation", {
+    p_reservation_id: reservationId,
+  });
+  if (!error) return null;
+  return {
+    error: `El cambio se guardó, pero no se pudieron liberar los horarios de spa de esta reservación (${error.message}). Revísalos manualmente antes de volver a ofertarlos.`,
+  };
+}
+
+const INACTIVE_STATUSES: Enums<"reservation_status">[] = ["cancelada", "finalizada"];
+const ACTIVE_STATUSES: Enums<"reservation_status">[] = ["pendiente", "confirmada"];
+
+// Vuelve a tomar los bloques de spa_availability de una reservación que un
+// admin está reactivando (cancelada/finalizada -> pendiente/confirmada). A
+// diferencia de releaseSpaSlots (que corre DESPUÉS del update principal), esto
+// se llama ANTES: si algún horario ya fue tomado por otro huésped mientras la
+// reservación estaba inactiva, la reactivación completa debe abortarse sin
+// llegar a tocar la fila de `reservations` — no basta con reportar el error
+// después de haber cambiado el status.
+async function reacquireSpaSlots(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  reservationId: string
+): Promise<{ error: string } | null> {
+  const { error } = await supabase.rpc("reacquire_spa_slots_for_reservation", {
+    p_reservation_id: reservationId,
+  });
+  if (!error) return null;
+  if (error.message.includes("SPA_SLOT_TAKEN")) {
+    return {
+      error:
+        "No se puede reactivar la reservación: uno o más horarios de SPA originales ya fueron ocupados por otro huésped.",
+    };
+  }
+  return {
+    error: `No se pudo reactivar la reservación: ${error.message}`,
+  };
+}
+
 export async function getReservations(): Promise<QueryResult<ReservationWithRelations[]>> {
   try {
     const auth = await requireAdmin();
@@ -143,6 +198,18 @@ export async function updateReservation(
     const touchesDates = updates.check_in !== undefined || updates.check_out !== undefined;
     const touchesStatus = updates.status !== undefined;
 
+    // Se resuelve dentro del bloque de abajo (que es donde se lee el status
+    // actual) y se consume después del update. Se usa el status EFECTIVO y no
+    // `updates.status === "cancelada"` a propósito: así, editar una
+    // reservación que ya estaba cancelada también libera sus horarios, lo que
+    // recupera el inventario de las que se cancelaron antes de que existiera
+    // esta liberación automática.
+    let effectiveStatusIsCancelled = false;
+    // Transición inversa: reactivar una reservación que estaba inactiva
+    // (cancelada/finalizada) hacia un status activo (pendiente/confirmada).
+    // Se resuelve aquí y se consume ANTES del update — ver reacquireSpaSlots.
+    let isReactivation = false;
+
     if (touchesDates || touchesStatus) {
       const { data: current, error: fetchError } = await auth.supabase
         .from("reservations")
@@ -157,6 +224,11 @@ export async function updateReservation(
       const effectiveCheckIn = updates.check_in ?? current.check_in;
       const effectiveCheckOut = updates.check_out ?? current.check_out;
       const effectiveStatus = updates.status ?? current.status;
+      effectiveStatusIsCancelled = effectiveStatus === "cancelada";
+      isReactivation =
+        touchesStatus &&
+        INACTIVE_STATUSES.includes(current.status) &&
+        ACTIVE_STATUSES.includes(effectiveStatus);
 
       const dateError = validateDates(effectiveCheckIn, effectiveCheckOut);
       if (dateError) return { error: dateError };
@@ -182,10 +254,26 @@ export async function updateReservation(
       }
     }
 
+    // Si se está reactivando, intenta volver a tomar los bloques de spa ANTES
+    // de tocar `reservations`: si algún horario ya fue tomado por otro
+    // huésped, la reactivación completa se aborta aquí, sin aplicar ningún
+    // cambio de status.
+    if (isReactivation) {
+      const reacquireError = await reacquireSpaSlots(auth.supabase, reservationId);
+      if (reacquireError) return reacquireError;
+    }
+
     const { error } = await auth.supabase.from("reservations").update(updates).eq("id", reservationId);
     if (error) return { error: error.message };
 
+    // Una reservación cancelada ya no ocupa el calendario: sus bloques de spa
+    // vuelven al inventario disponible.
+    const releaseError = effectiveStatusIsCancelled
+      ? await releaseSpaSlots(auth.supabase, reservationId)
+      : null;
+
     revalidatePath("/admin/reservations");
+    if (releaseError) return releaseError;
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Ocurrió un error inesperado." };
@@ -207,7 +295,13 @@ export async function deleteReservation(reservationId: string): Promise<ActionRe
       .eq("id", reservationId);
     if (error) return { error: error.message };
 
+    // Igual que al cancelar: la reservación deja de ocupar el calendario, así
+    // que sus bloques de spa vuelven al inventario. Los spa_bookings siguen
+    // ahí — el soft delete conserva todo el historial.
+    const releaseError = await releaseSpaSlots(auth.supabase, reservationId);
+
     revalidatePath("/admin/reservations");
+    if (releaseError) return releaseError;
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Ocurrió un error inesperado." };

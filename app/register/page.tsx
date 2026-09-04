@@ -8,8 +8,8 @@ import { compensateFailedRegistration } from "@/app/register/actions";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
-// Ladas de ejemplo para el prototipo — no vive en lib/mock-data.ts porque no es un dato de
-// negocio (precio/amenidad/servicio), es configuración fija del propio input de teléfono.
+// Ladas de ejemplo para el prototipo — no es un dato de negocio (precio/amenidad/servicio)
+// que deba vivir en la base de datos, es configuración fija del propio input de teléfono.
 const COUNTRY_CODES = [
   { dial: "+52", label: "México (+52)" },
   { dial: "+1", label: "USA/Canadá (+1)" },

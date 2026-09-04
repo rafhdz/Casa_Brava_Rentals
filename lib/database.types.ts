@@ -34,6 +34,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      additional_services_info: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          image_url: string
+          price_hint: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id: string
+          image_url: string
+          price_hint: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          image_url?: string
+          price_hint?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      amenities: {
+        Row: {
+          category_id: string
+          created_at: string
+          icon_url: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          icon_url: string
+          id?: string
+          name: string
+          sort_order: number
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          icon_url?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "amenities_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "amenity_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      amenity_categories: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       fare_types: {
         Row: {
           id: string
@@ -49,6 +132,24 @@ export type Database = {
           id?: string
           name?: string
           surcharge_percentage?: number
+        }
+        Relationships: []
+      }
+      food_availability: {
+        Row: {
+          available_date: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          available_date: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          available_date?: string
+          created_at?: string
+          id?: string
         }
         Relationships: []
       }
@@ -163,6 +264,30 @@ export type Database = {
         }
         Relationships: []
       }
+      property_photos: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          sort_order: number
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          sort_order: number
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          sort_order?: number
+          url?: string
+        }
+        Relationships: []
+      }
       property_settings: {
         Row: {
           id: string
@@ -234,6 +359,41 @@ export type Database = {
             columns: ["guest_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spa_availability: {
+        Row: {
+          available_date: string
+          available_time: string
+          created_at: string
+          id: string
+          is_booked: boolean
+          masseuse_id: string
+        }
+        Insert: {
+          available_date: string
+          available_time: string
+          created_at?: string
+          id?: string
+          is_booked?: boolean
+          masseuse_id: string
+        }
+        Update: {
+          available_date?: string
+          available_time?: string
+          created_at?: string
+          id?: string
+          is_booked?: boolean
+          masseuse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spa_availability_masseuse_id_fkey"
+            columns: ["masseuse_id"]
+            isOneToOne: false
+            referencedRelation: "spa_masseuses"
             referencedColumns: ["id"]
           },
         ]
@@ -420,9 +580,31 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      book_spa_slot: {
+        Args: {
+          p_date: string
+          p_masseuse_id: string
+          p_price: number
+          p_reservation_id: string
+          p_time: string
+        }
+        Returns: string
+      }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["role_type"]
+      }
+      reacquire_spa_slots_for_reservation: {
+        Args: { p_reservation_id: string }
+        Returns: number
+      }
+      release_spa_booking: {
+        Args: { p_booking_id: string }
+        Returns: undefined
+      }
+      release_spa_slots_for_reservation: {
+        Args: { p_reservation_id: string }
+        Returns: number
       }
     }
     Enums: {

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { CartItem } from "@/lib/mock-data";
+import type { CartItem } from "@/lib/cart-types";
 import { useAuth } from "@/lib/AuthContext";
 
 const ANON_CART_KEY = "casabrava_cart_anon";

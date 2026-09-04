@@ -1,19 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
-import { SPA_AVAILABILITY, SPA_SESSION_PRICE, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
+import { formatSimulatedDate, formatTimeSlot } from "@/lib/format";
+import type { CartItem } from "@/lib/cart-types";
 import Calendar, { AVAILABILITY_MODIFIERS_CLASS_NAMES } from "@/components/Calendar";
+
+// No hay columna de precio en spa_masseuses — sigue siendo un valor fijo a
+// propósito (fuera de alcance de la migración de contenido del Home, ver
+// CLAUDE.md).
+const SPA_SESSION_PRICE = 600;
 
 type MasseuseOption = {
   id: string;
   name: string;
 };
 
-export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOption[] }) {
+// Una fila de spa_availability por bloque de hora ofertado. Llega ya filtrada
+// desde app/servicios/spa/page.tsx (sin bloques ocupados ni días pasados) y
+// ordenada por fecha/hora, así que aquí solo se agrupa para el calendario.
+export type SpaAvailabilitySlot = {
+  masseuse_id: string;
+  available_date: string; // "yyyy-MM-dd"
+  available_time: string; // "HH:mm:ss"
+};
+
+export default function SpaBookingForm({
+  masseuses,
+  availability,
+}: {
+  masseuses: MasseuseOption[];
+  availability: SpaAvailabilitySlot[];
+}) {
   const router = useRouter();
   const { addToCart } = useCart();
   const [masseuseId, setMasseuseId] = useState("");
@@ -21,12 +42,31 @@ export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOptio
   const [time, setTime] = useState("");
 
   const masseuse = masseuses.find((m) => m.id === masseuseId) ?? null;
-  // Disponibilidad simulada (ver lib/mock-data.ts) keyed por nombre — el id real es uuid.
-  const availability = masseuse ? SPA_AVAILABILITY[masseuse.name] : undefined;
+
+  // Días distintos con al menos un bloque libre para la masajista elegida.
+  const availableDays = useMemo(() => {
+    if (!masseuseId) return [];
+    const days = availability
+      .filter((slot) => slot.masseuse_id === masseuseId)
+      .map((slot) => slot.available_date);
+    return [...new Set(days)];
+  }, [availability, masseuseId]);
+
+  // Bloques de hora libres para (masajista, día). A diferencia del mapa
+  // mockeado que existía antes —una sola lista de horas por masajista, igual
+  // para todos sus días— los horarios ahora salen por día, que es como están
+  // modelados en spa_availability.
+  const availableTimes = useMemo(() => {
+    if (!masseuseId || !day) return [];
+    return availability
+      .filter((slot) => slot.masseuse_id === masseuseId && slot.available_date === day)
+      .map((slot) => slot.available_time);
+  }, [availability, masseuseId, day]);
+
   const canAdd = masseuse !== null && day !== "" && time !== "";
 
   function isDayAvailable(date: Date): boolean {
-    return availability !== undefined && availability.availableDays.includes(format(date, "yyyy-MM-dd"));
+    return availableDays.includes(format(date, "yyyy-MM-dd"));
   }
 
   function handleSelectMasseuse(id: string) {
@@ -82,39 +122,47 @@ export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOptio
         </div>
       </section>
 
-      {masseuse && availability && (
+      {masseuse && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold text-neutral-900">2. Elige el día</h2>
-          <p className="text-sm text-neutral-500">
-            Solo los días disponibles de {masseuse.name} están habilitados en el calendario.
-          </p>
-          <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <Calendar
-              key={masseuse.id}
-              mode="single"
-              selected={day ? parseISO(day) : undefined}
-              onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
-              disabled={(date) => !isDayAvailable(date)}
-              modifiers={{
-                available: (date) => isDayAvailable(date) && format(date, "yyyy-MM-dd") !== day,
-              }}
-              modifiersClassNames={AVAILABILITY_MODIFIERS_CLASS_NAMES}
-              defaultMonth={parseISO(availability.availableDays[0])}
-            />
-          </div>
-          {day && (
-            <p className="text-sm text-neutral-600">
-              Día seleccionado: <span className="font-medium text-neutral-900">{formatSimulatedDate(day)}</span>
+          {availableDays.length === 0 ? (
+            <p className="text-sm text-neutral-500">
+              {masseuse.name} no tiene días disponibles por ahora. Prueba con otra masajista.
             </p>
+          ) : (
+            <>
+              <p className="text-sm text-neutral-500">
+                Solo los días disponibles de {masseuse.name} están habilitados en el calendario.
+              </p>
+              <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+                <Calendar
+                  key={masseuse.id}
+                  mode="single"
+                  selected={day ? parseISO(day) : undefined}
+                  onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
+                  disabled={(date) => !isDayAvailable(date)}
+                  modifiers={{
+                    available: (date) => isDayAvailable(date) && format(date, "yyyy-MM-dd") !== day,
+                  }}
+                  modifiersClassNames={AVAILABILITY_MODIFIERS_CLASS_NAMES}
+                  defaultMonth={parseISO(availableDays[0])}
+                />
+              </div>
+              {day && (
+                <p className="text-sm text-neutral-600">
+                  Día seleccionado: <span className="font-medium text-neutral-900">{formatSimulatedDate(day)}</span>
+                </p>
+              )}
+            </>
           )}
         </section>
       )}
 
-      {masseuse && availability && day && (
+      {masseuse && day && (
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-semibold text-neutral-900">3. Elige la hora</h2>
           <div className="flex flex-wrap gap-2">
-            {availability.availableTimes.map((t) => (
+            {availableTimes.map((t) => (
               <button
                 key={t}
                 type="button"
@@ -125,7 +173,7 @@ export default function SpaBookingForm({ masseuses }: { masseuses: MasseuseOptio
                     : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
                 }`}
               >
-                {t}
+                {formatTimeSlot(t)}
               </button>
             ))}
           </div>

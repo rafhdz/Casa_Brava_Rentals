@@ -28,7 +28,7 @@ function formatFullName(person: {
 }
 
 // new Date(`${value}T00:00:00`) en vez de new Date(value): mismo truco que
-// formatSimulatedDate en lib/mock-data.ts para evitar el bug de zona horaria
+// formatSimulatedDate en lib/format.ts para evitar el bug de zona horaria
 // de new Date("yyyy-MM-dd") (se interpreta en UTC y puede desfasar un día
 // según el navegador) — ver CLAUDE.md, sección Calendar.tsx.
 function formatDate(value: string): string {

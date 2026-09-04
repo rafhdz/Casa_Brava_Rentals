@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
-import { FOOD_AVAILABLE_DATES, formatSimulatedDate, type CartItem } from "@/lib/mock-data";
+import { formatSimulatedDate } from "@/lib/format";
+import type { CartItem } from "@/lib/cart-types";
 import type { Enums } from "@/lib/database.types";
 import Calendar from "@/components/Calendar";
 
@@ -21,7 +22,15 @@ type MenuOption = {
 // de traducción aparte.
 const MEAL_TYPE_ORDER: Enums<"meal_type">[] = ["Desayuno", "Almuerzo", "Cena"];
 
-export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
+export default function FoodBookingForm({
+  menus,
+  availableDates,
+}: {
+  menus: MenuOption[];
+  // Fechas ISO ("yyyy-MM-dd") de food_availability, ya filtradas a partir de
+  // hoy y ordenadas ascendentemente desde app/servicios/comida/page.tsx.
+  availableDates: string[];
+}) {
   const router = useRouter();
   const { addToCart } = useCart();
   const [day, setDay] = useState("");
@@ -77,20 +86,28 @@ export default function FoodBookingForm({ menus }: { menus: MenuOption[] }) {
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-neutral-900">1. Elige el día</h2>
-        <p className="text-sm text-neutral-500">Solo los días con servicio de cocina disponible están habilitados.</p>
-        <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <Calendar
-            mode="single"
-            selected={day ? parseISO(day) : undefined}
-            onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
-            disabled={(date) => !FOOD_AVAILABLE_DATES.includes(format(date, "yyyy-MM-dd"))}
-            defaultMonth={parseISO(FOOD_AVAILABLE_DATES[0])}
-          />
-        </div>
-        {day && (
-          <p className="text-sm text-neutral-600">
-            Día seleccionado: <span className="font-medium text-neutral-900">{formatSimulatedDate(day)}</span>
+        {availableDates.length === 0 ? (
+          <p className="text-sm text-neutral-500">
+            No hay días con servicio de cocina disponibles por ahora.
           </p>
+        ) : (
+          <>
+            <p className="text-sm text-neutral-500">Solo los días con servicio de cocina disponible están habilitados.</p>
+            <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+              <Calendar
+                mode="single"
+                selected={day ? parseISO(day) : undefined}
+                onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
+                disabled={(date) => !availableDates.includes(format(date, "yyyy-MM-dd"))}
+                defaultMonth={parseISO(availableDates[0])}
+              />
+            </div>
+            {day && (
+              <p className="text-sm text-neutral-600">
+                Día seleccionado: <span className="font-medium text-neutral-900">{formatSimulatedDate(day)}</span>
+              </p>
+            )}
+          </>
         )}
       </section>
 

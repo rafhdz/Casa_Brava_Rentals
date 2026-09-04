@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
-import type { CartItem, WineOrderBottle } from "@/lib/mock-data";
+import type { CartItem, WineOrderBottle } from "@/lib/cart-types";
 
 type WineOption = {
   id: string;

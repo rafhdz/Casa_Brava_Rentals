@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAuth } from "@/lib/supabase/require-auth";
 import { validateDates, hasOverlappingConfirmedReservation, OVERLAP_ERROR } from "@/lib/supabase/reservation-rules";
 import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
-import type { CartItem } from "@/lib/mock-data";
+import type { CartItem } from "@/lib/cart-types";
 
 type ActionResult = { success: true } | { error: string };
 
@@ -14,22 +14,17 @@ export type CheckoutStayInput = {
   fare_type_id: string;
 };
 
-// Convierte un horario simulado de 12h ("10:00 AM", "2:00 PM") a "HH:mm:ss"
-// en 24h antes de insertarlo en spa_bookings.time (columna `time`). Aunque
-// Postgres puede parsear el literal '10:00 AM' directamente, ese parseo
-// depende de la configuración de locale/DateStyle del servidor — normalizar
-// en la aplicación evita depender de eso.
-function to24HourTime(time12h: string): string {
-  const match = /^(\d{1,2}):(\d{2})\s?(AM|PM)$/i.exec(time12h.trim());
-  if (!match) return time12h;
+// Código SQLSTATE de un `raise exception` de plpgsql sin errcode explícito.
+// Las excepciones de book_spa_slot()/release_spa_booking() ya vienen
+// redactadas en español y pensadas para el huésped, así que se muestran tal
+// cual; cualquier otro error de Postgres (violación de constraint, fallo de
+// cast, etc.) se reemplaza por un mensaje genérico para no filtrar texto
+// interno de la base.
+const PLPGSQL_RAISE_EXCEPTION = "P0001";
 
-  const [, hoursRaw, minutes, meridiemRaw] = match;
-  const meridiem = meridiemRaw.toUpperCase();
-  let hours = parseInt(hoursRaw, 10);
-  if (meridiem === "PM" && hours !== 12) hours += 12;
-  if (meridiem === "AM" && hours === 12) hours = 0;
-
-  return `${String(hours).padStart(2, "0")}:${minutes}:00`;
+function spaErrorMessage(error: { code?: string; message: string } | null): string {
+  if (error?.code === PLPGSQL_RAISE_EXCEPTION) return error.message;
+  return "No se pudo reservar el servicio de spa. Vuelve a intentarlo.";
 }
 
 // Crea el registro maestro en `reservations` para el huésped autenticado —
@@ -130,13 +125,43 @@ export async function checkoutCartServices(items: CartItem[]): Promise<ActionRes
 
     const reservationId = reservation.id;
 
+    // Los días de cocina no se ocupan (varios huéspedes pueden pedir distintos
+    // tiempos de comida el mismo día), así que aquí no hay control de
+    // colisiones como en el spa — solo se confirma que el día siga siendo uno
+    // de los habilitados en food_availability, por si el carrito quedó guardado
+    // en localStorage desde antes de que un admin retirara ese día.
+    const requestedFoodDates = [
+      ...new Set(items.filter((item) => item.serviceType === "comida").map((item) => item.details.day)),
+    ];
+    if (requestedFoodDates.length > 0) {
+      const { data: openDates, error: availabilityError } = await supabase
+        .from("food_availability")
+        .select("available_date")
+        .in("available_date", requestedFoodDates);
+
+      if (availabilityError) return { error: availabilityError.message };
+
+      const openDateSet = new Set((openDates ?? []).map((row) => row.available_date));
+      const unavailable = requestedFoodDates.filter((date) => !openDateSet.has(date));
+      if (unavailable.length > 0) {
+        return {
+          error: "El servicio de cocina ya no está disponible en alguno de los días seleccionados.",
+        };
+      }
+    }
+
     const insertedSpaIds: string[] = [];
     const insertedFoodIds: string[] = [];
     const insertedWineOrderIds: string[] = [];
 
     async function compensate() {
-      if (insertedSpaIds.length) {
-        await supabase.from("spa_bookings").delete().in("id", insertedSpaIds);
+      // release_spa_booking borra la reserva Y libera su bloque de
+      // spa_availability en una sola transacción. Un `delete` directo sobre
+      // spa_bookings no sirve aquí: el huésped no tiene política RLS de
+      // DELETE sobre esa tabla (borraría 0 filas en silencio) y, aunque la
+      // tuviera, dejaría el bloque marcado como ocupado para siempre.
+      for (const bookingId of insertedSpaIds) {
+        await supabase.rpc("release_spa_booking", { p_booking_id: bookingId });
       }
       if (insertedFoodIds.length) {
         await supabase.from("food_bookings").delete().in("id", insertedFoodIds);
@@ -149,23 +174,27 @@ export async function checkoutCartServices(items: CartItem[]): Promise<ActionRes
 
     for (const item of items) {
       if (item.serviceType === "spa") {
-        const { data, error } = await supabase
-          .from("spa_bookings")
-          .insert({
-            reservation_id: reservationId,
-            masseuse_id: item.details.masseuseId,
-            date: item.details.day,
-            time: to24HourTime(item.details.time),
-            price_per_hour: item.totalPrice,
-          })
-          .select("id")
-          .single();
+        // Control de colisiones: book_spa_slot() toma el bloque de
+        // spa_availability y crea la fila de spa_bookings dentro de una misma
+        // transacción, con la fila de disponibilidad bloqueada (`for update`)
+        // mientras verifica que siga libre y que ninguna reservación
+        // 'pendiente'/'confirmada' la haya ocupado ya. Hacer esa verificación
+        // aquí, con dos llamadas separadas de supabase-js, dejaría una ventana
+        // en la que dos huéspedes concurrentes pasan el mismo chequeo antes de
+        // que cualquiera de los dos inserte.
+        const { data, error } = await supabase.rpc("book_spa_slot", {
+          p_reservation_id: reservationId,
+          p_masseuse_id: item.details.masseuseId,
+          p_date: item.details.day,
+          p_time: item.details.time,
+          p_price: item.totalPrice,
+        });
 
         if (error || !data) {
           await compensate();
-          return { error: `No se pudo reservar el servicio de spa: ${error?.message ?? "error desconocido"}` };
+          return { error: spaErrorMessage(error) };
         }
-        insertedSpaIds.push(data.id);
+        insertedSpaIds.push(data);
       } else if (item.serviceType === "comida") {
         const { data, error } = await supabase
           .from("food_bookings")
