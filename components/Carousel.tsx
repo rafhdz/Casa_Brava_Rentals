@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
-import type { Tables } from "@/lib/database.types";
+import type { PropertyPhoto } from "@/lib/api/types";
 
-export type Photo = Pick<Tables<"property_photos">, "id" | "label" | "url">;
+export type Photo = Pick<PropertyPhoto, "id" | "label" | "url">;
 
 const AUTO_ROTATE_INTERVAL_MS = 4000;
 const ZOOM_MIN = 1;

@@ -2,28 +2,22 @@
 
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
-import type { Profile } from "@/lib/AuthContext";
+import type { ProfileStatus, RoleType, Usuario } from "@/lib/api/types";
 import { createUser, deleteUser, updateUser } from "@/app/admin/actions";
 
-function formatFullName(profile: Profile): string {
-  return [profile.first_name, profile.apellido_paterno, profile.apellido_materno]
-    .filter(Boolean)
-    .join(" ");
-}
-
-const ROLE_LABELS: Record<Profile["role"], string> = {
+const ROLE_LABELS: Record<RoleType, string> = {
   admin: "Admin",
   holder: "Propietario",
   guest: "Huésped",
 };
 
-const ROLE_BADGE_CLASSES: Record<Profile["role"], string> = {
+const ROLE_BADGE_CLASSES: Record<RoleType, string> = {
   admin: "bg-neutral-900 text-white",
   holder: "bg-blue-100 text-blue-700",
   guest: "bg-neutral-100 text-neutral-700",
 };
 
-function RoleBadge({ role }: { role: Profile["role"] }) {
+function RoleBadge({ role }: { role: RoleType }) {
   return (
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${ROLE_BADGE_CLASSES[role]}`}
@@ -33,7 +27,7 @@ function RoleBadge({ role }: { role: Profile["role"] }) {
   );
 }
 
-function StatusBadge({ status }: { status: Profile["status"] }) {
+function StatusBadge({ status }: { status: ProfileStatus }) {
   const isActivo = status === "activo";
   return (
     <span
@@ -77,14 +71,14 @@ function EditUserModal({
   onSave,
   isPending,
 }: {
-  user: Profile;
+  user: Usuario;
   isSelf: boolean;
   onClose: () => void;
-  onSave: (updates: { role: Profile["role"]; status: Profile["status"] }) => void;
+  onSave: (updates: { role: RoleType; status: ProfileStatus }) => void;
   isPending: boolean;
 }) {
-  const [role, setRole] = useState<Profile["role"]>(user.role);
-  const [status, setStatus] = useState<Profile["status"]>(user.status);
+  const [role, setRole] = useState<RoleType>(user.role);
+  const [status, setStatus] = useState<ProfileStatus>(user.status);
 
   useCloseOnEscape(onClose);
 
@@ -110,7 +104,7 @@ function EditUserModal({
           Editar usuario
         </h2>
         <p className="mt-1 text-sm text-neutral-500">
-          Actualiza el rol y estado de {formatFullName(user)}.
+          Actualiza el rol y estado de {user.nombre_completo}.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
@@ -130,7 +124,7 @@ function EditUserModal({
               <span className="text-sm font-medium text-neutral-700">Rol</span>
               <select
                 value={role}
-                onChange={(e) => setRole(e.target.value as Profile["role"])}
+                onChange={(e) => setRole(e.target.value as RoleType)}
                 disabled={isSelf}
                 className={`${INPUT_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
               >
@@ -144,7 +138,7 @@ function EditUserModal({
               <span className="text-sm font-medium text-neutral-700">Estado</span>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as Profile["status"])}
+                onChange={(e) => setStatus(e.target.value as ProfileStatus)}
                 disabled={isSelf}
                 className={`${INPUT_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
               >
@@ -173,7 +167,7 @@ type CreateUserFormData = {
   firstName: string;
   lastName1: string;
   lastName2: string;
-  role: Profile["role"];
+  role: RoleType;
 };
 
 function CreateUserModal({
@@ -189,7 +183,7 @@ function CreateUserModal({
   const [firstName, setFirstName] = useState("");
   const [lastName1, setLastName1] = useState("");
   const [lastName2, setLastName2] = useState("");
-  const [role, setRole] = useState<Profile["role"]>("guest");
+  const [role, setRole] = useState<RoleType>("guest");
 
   useCloseOnEscape(onClose);
 
@@ -269,7 +263,7 @@ function CreateUserModal({
             <span className="text-sm font-medium text-neutral-700">Rol</span>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as Profile["role"])}
+              onChange={(e) => setRole(e.target.value as RoleType)}
               className={INPUT_CLASS}
             >
               <option value="guest">Huésped</option>
@@ -298,7 +292,7 @@ function DeleteUserModal({
   onConfirm,
   isPending,
 }: {
-  user: Profile;
+  user: Usuario;
   onClose: () => void;
   onConfirm: () => void;
   isPending: boolean;
@@ -322,7 +316,7 @@ function DeleteUserModal({
         </h2>
         <p className="mt-2 text-sm text-neutral-600">
           ¿Seguro que quieres eliminar a{" "}
-          <span className="font-medium text-neutral-900">{formatFullName(user)}</span>? Se
+          <span className="font-medium text-neutral-900">{user.nombre_completo}</span>? Se
           borrará su cuenta de acceso y su perfil. Esta acción no se puede deshacer.
         </p>
 
@@ -343,17 +337,17 @@ export default function UsersTable({
   users,
   currentUserId,
 }: {
-  users: Profile[];
+  users: Usuario[];
   currentUserId: string;
 }) {
-  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+  const [selectedUser, setSelectedUser] = useState<Usuario | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [userToDelete, setUserToDelete] = useState<Profile | null>(null);
+  const [userToDelete, setUserToDelete] = useState<Usuario | null>(null);
   const [isUpdatePending, startUpdateTransition] = useTransition();
   const [isCreatePending, startCreateTransition] = useTransition();
   const [isDeletePending, startDeleteTransition] = useTransition();
 
-  function handleEditClick(user: Profile) {
+  function handleEditClick(user: Usuario) {
     setSelectedUser(user);
   }
 
@@ -361,7 +355,7 @@ export default function UsersTable({
     setSelectedUser(null);
   }
 
-  function handleSaveUser(updates: { role: Profile["role"]; status: Profile["status"] }) {
+  function handleSaveUser(updates: { role: RoleType; status: ProfileStatus }) {
     if (!selectedUser) return;
     const userId = selectedUser.id;
 
@@ -402,7 +396,7 @@ export default function UsersTable({
     });
   }
 
-  function handleDeleteClick(user: Profile) {
+  function handleDeleteClick(user: Usuario) {
     setUserToDelete(user);
   }
 
@@ -461,7 +455,7 @@ export default function UsersTable({
                 return (
                   <tr key={user.id} className="border-b border-neutral-100 last:border-0">
                     <td className="px-4 py-3 font-medium text-neutral-900">
-                      {formatFullName(user)}
+                      {user.nombre_completo}
                     </td>
                     <td className="px-4 py-3 text-neutral-600">{user.email}</td>
                     <td className="px-4 py-3">

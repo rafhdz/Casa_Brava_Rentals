@@ -3,10 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
-import type { Database } from "@/lib/database.types";
+import type { RoleType } from "@/lib/api/types";
 import BackButton from "@/components/BackButton";
-
-type RoleType = Database["public"]["Enums"]["role_type"];
 
 const ROLE_LABELS: Record<RoleType, string> = {
   admin: "Administrador",
@@ -15,7 +13,7 @@ const ROLE_LABELS: Record<RoleType, string> = {
 };
 
 export default function PerfilPage() {
-  const { user, profile, isLoading, logout } = useAuth();
+  const { user, isLoading, logout } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -29,9 +27,9 @@ export default function PerfilPage() {
     router.push("/login");
   }
 
-  // isLoading cubre la hidratación de la sesión; una vez hay `user` puede
-  // faltar un instante más mientras se resuelve el fetch a `profiles`.
-  if (isLoading || (user && !profile)) {
+  // El layout raíz resuelve la sesión en el servidor, así que no hay estado
+  // de "hidratando" al entrar; `isLoading` solo cubre un logout en vuelo.
+  if (isLoading) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center px-4 py-16 sm:px-6">
         <p className="text-sm text-neutral-500">Cargando perfil…</p>
@@ -39,7 +37,7 @@ export default function PerfilPage() {
     );
   }
 
-  if (!user || !profile) {
+  if (!user) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center gap-2 px-4 py-16 text-center sm:px-6">
         <p className="text-sm text-neutral-500">
@@ -49,16 +47,15 @@ export default function PerfilPage() {
     );
   }
 
-  const fullName = [profile.first_name, profile.apellido_paterno, profile.apellido_materno]
-    .filter(Boolean)
-    .join(" ");
+  // El backend ya arma el nombre completo y lo expone como campo derivado.
+  const fullName = user.nombre_completo;
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 px-4 py-12 sm:px-6">
       <BackButton />
 
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900">Hola, {profile.first_name}</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900">Hola, {user.first_name}</h1>
         <p className="mt-1 text-sm text-neutral-500">
           Información de tu sesión actual.
         </p>
@@ -67,15 +64,15 @@ export default function PerfilPage() {
       <div className="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
         <div className="flex flex-col items-center gap-3 p-6">
           <span className="flex h-16 w-16 items-center justify-center rounded-full bg-neutral-900 text-xl font-semibold text-white">
-            {profile.first_name.charAt(0).toUpperCase()}
+            {user.first_name.charAt(0).toUpperCase()}
           </span>
           <span className="text-lg font-semibold text-neutral-900">{fullName}</span>
           <span
             className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              profile.role === "admin" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-700"
+              user.role === "admin" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-700"
             }`}
           >
-            {ROLE_LABELS[profile.role]}
+            {ROLE_LABELS[user.role]}
           </span>
         </div>
 
@@ -86,11 +83,11 @@ export default function PerfilPage() {
           </div>
           <div className="flex justify-between border-b border-neutral-100 pb-3">
             <dt className="text-neutral-500">Correo</dt>
-            <dd className="font-medium text-neutral-900">{profile.email}</dd>
+            <dd className="font-medium text-neutral-900">{user.email}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-neutral-500">Rol</dt>
-            <dd className="font-medium text-neutral-900">{ROLE_LABELS[profile.role]}</dd>
+            <dd className="font-medium text-neutral-900">{ROLE_LABELS[user.role]}</dd>
           </div>
         </dl>
       </div>

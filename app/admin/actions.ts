@@ -1,151 +1,97 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/supabase/require-admin";
-import { createAdminClient } from "@/lib/supabase/admin";
-import type { Profile } from "@/lib/AuthContext";
+import { serverFetch, toActionError } from "@/lib/api/server";
+import type { ProfileStatus, RoleType, Usuario } from "@/lib/api/types";
 
 type ActionResult = { success: true } | { error: string };
 
-// Contraseña temporal fija asignada a toda cuenta creada desde /admin (Fase
-// 2 — antes se invitaba por correo con inviteUserByEmail y la persona
-// elegía su propia contraseña). Aceptable solo mientras el proyecto siga
-// siendo un prototipo de acceso invitado con un puñado de usuarios de
-// confianza — ver el aviso completo en CLAUDE.md ("Creación directa de
-// usuarios") antes de reutilizar este patrón en producción.
+/**
+ * Contraseña temporal fija asignada a toda cuenta creada desde /admin.
+ *
+ * ⚠️ Aceptable solo mientras el proyecto siga siendo un sistema de acceso
+ * invitado con un puñado de usuarios de confianza, donde el admin le comparte
+ * la contraseña a la persona directamente. Es la misma para *todas* las
+ * cuentas y cualquiera con acceso al código la conoce. Antes de un despliegue
+ * real hay que reemplazarla por: (a) forzar el cambio en el primer login,
+ * (b) generar una aleatoria por usuario y comunicarla fuera de banda, o
+ * (c) un flujo de invitación por correo donde la persona elija la suya.
+ */
 const DEFAULT_TEMP_PASSWORD = "changeme123";
 
-// Traduce los errores más comunes de la Auth Admin API a español, con el
-// mismo criterio que translateAuthError en app/login/page.tsx (no exponer
-// mensajes internos del proveedor en la UI). Solo cubre el caso que un admin
-// realmente puede provocar desde este formulario — crear una cuenta con un
-// correo que ya existe; cualquier otro error cae a un mensaje genérico.
-function translateCreateError(message: string): string {
-  if (message.toLowerCase().includes("already been registered")) {
-    return "Ya existe un usuario con este correo.";
-  }
-  return "No se pudo crear el usuario. Intenta de nuevo.";
-}
-
+/**
+ * Crea una cuenta con su perfil.
+ *
+ * En Supabase esto eran dos escrituras (la cuenta en `auth.users` y el perfil
+ * en `profiles`) con una compensación manual por si la segunda fallaba y
+ * dejaba un usuario huérfano que bloqueaba el correo. Aquí cuenta y perfil son
+ * la misma fila: una sola petición que pasa entera o no pasa.
+ */
 export async function createUser(
   email: string,
   firstName: string,
   lastName1: string,
   lastName2: string,
-  role: Profile["role"]
+  role: RoleType
 ): Promise<ActionResult> {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) return { error: auth.error };
-
-    // createUser (Auth Admin API) solo funciona con la Service Role Key —
-    // por eso este paso, a diferencia de updateUser, no puede usar el
-    // cliente de sesión estándar. email_confirm: true evita el correo de
-    // confirmación: la cuenta queda lista para iniciar sesión de inmediato
-    // con DEFAULT_TEMP_PASSWORD.
-    const admin = createAdminClient();
-
-    const { data, error } = await admin.auth.admin.createUser({
-      email,
-      password: DEFAULT_TEMP_PASSWORD,
-      email_confirm: true,
+    await serverFetch<Usuario>("/api/usuarios/", {
+      method: "POST",
+      body: {
+        email,
+        password: DEFAULT_TEMP_PASSWORD,
+        first_name: firstName,
+        apellido_paterno: lastName1,
+        apellido_materno: lastName2 || null,
+        role,
+        status: "activo",
+      },
     });
-    if (error) return { error: translateCreateError(error.message) };
-    if (!data.user) return { error: "No se pudo crear el usuario." };
-
-    const { error: profileError } = await admin.from("profiles").insert({
-      id: data.user.id,
-      email,
-      first_name: firstName,
-      apellido_paterno: lastName1,
-      apellido_materno: lastName2 || null,
-      role,
-    });
-
-    if (profileError) {
-      // Compensar: si el perfil no se pudo crear, no dejar un usuario de
-      // Auth huérfano (con cuenta pero sin fila en profiles) — quedaría con
-      // el correo "ocupado" en auth.users, bloqueando cualquier reintento
-      // de creación para ese mismo correo.
-      await admin.auth.admin.deleteUser(data.user.id);
-      return { error: profileError.message };
-    }
 
     revalidatePath("/admin");
     return { success: true };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Ocurrió un error inesperado." };
+  } catch (error) {
+    // El backend ya devuelve "Ya existe un/a usuario con este/a email." para el
+    // correo duplicado, que es el único error que un admin puede provocar
+    // realmente desde este formulario.
+    return { error: toActionError(error, "No se pudo crear el usuario. Intenta de nuevo.") };
   }
 }
 
+/**
+ * Cambia el rol y/o el estado de una cuenta.
+ *
+ * El guard contra la auto-modificación (un admin quitándose su propio rol y
+ * quedando fuera del panel) vive en el backend, en el `validate()` del
+ * serializer: la UI deshabilita los selects en la propia fila, pero el límite
+ * real es la API.
+ */
 export async function updateUser(
   userId: string,
-  data: { role?: Profile["role"]; status?: Profile["status"] }
+  data: { role?: RoleType; status?: ProfileStatus }
 ): Promise<ActionResult> {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) return { error: auth.error };
-
-    // Guard anti-auto-modificación: si el admin se edita a sí mismo, no se
-    // le permite tocar su propio role/status — podría quitarse el rol admin
-    // o suspenderse (status: "invitado") y quedar sin acceso a /admin en su
-    // siguiente navegación, recuperable solo interviniendo la base de datos
-    // a mano (mismo tipo de auto-lockout que ya bloquea deleteUser más
-    // abajo). La UI ya deshabilita estos selects en la propia fila del admin
-    // (ver UsersTable.tsx), pero esta Server Action es el límite real.
-    if (auth.userId === userId) {
-      return { error: "No puedes modificar tu propio rol o estado." };
-    }
-
-    // A diferencia de createUser, esto sí puede usar el cliente de sesión
-    // estándar (no la Service Role Key): el admin ya está autenticado y esta
-    // es una actualización sobre una fila existente, no una llamada a la
-    // Auth Admin API.
-    const { error } = await auth.supabase.from("profiles").update(data).eq("id", userId);
-    if (error) return { error: error.message };
+    await serverFetch<Usuario>(`/api/usuarios/${userId}/`, { method: "PATCH", body: data });
 
     revalidatePath("/admin");
     return { success: true };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Ocurrió un error inesperado." };
+  } catch (error) {
+    return { error: toActionError(error, "No se pudo actualizar el usuario.") };
   }
 }
 
+/**
+ * Elimina una cuenta. El backend rechaza que un admin borre la suya —el camino
+ * más corto para dejar el panel sin acceso—, igual que la UI deshabilita ese
+ * botón en la propia fila.
+ */
 export async function deleteUser(userId: string): Promise<ActionResult> {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) return { error: auth.error };
-
-    // Guard duro contra el auto-lockout: si el único admin se elimina a sí
-    // mismo, nadie más puede volver a entrar a /admin sin intervenir la base
-    // de datos a mano. El botón "Eliminar" ya viene deshabilitado en la UI
-    // para la propia fila, pero la Server Action es el límite real (la UI es
-    // solo una ayuda, no la protección).
-    if (auth.userId === userId) {
-      return { error: "No puedes eliminar tu propia cuenta." };
-    }
-
-    const admin = createAdminClient();
-    const { error } = await admin.auth.admin.deleteUser(userId);
-
-    if (error) {
-      // profiles.id -> auth.users(id) es "on delete cascade" (ver migración
-      // inicial): si el usuario de Auth existe, borrarlo ya elimina su
-      // profile automáticamente, sin necesidad de un segundo delete. Este
-      // bloque solo cubre el caso contrario — un profile huérfano cuyo
-      // usuario de Auth ya no existe (por alguna causa externa a esta app)
-      // — para no dejar una fila que ningún flujo normal puede volver a
-      // tocar.
-      const isNotFound = error.status === 404 || /not found/i.test(error.message);
-      if (!isNotFound) return { error: error.message };
-
-      const { error: profileError } = await admin.from("profiles").delete().eq("id", userId);
-      if (profileError) return { error: profileError.message };
-    }
+    await serverFetch(`/api/usuarios/${userId}/`, { method: "DELETE" });
 
     revalidatePath("/admin");
     return { success: true };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Ocurrió un error inesperado." };
+  } catch (error) {
+    return { error: toActionError(error, "No se pudo eliminar el usuario.") };
   }
 }

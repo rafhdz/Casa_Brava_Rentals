@@ -1,11 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { Tables } from "@/lib/database.types";
+import type { AdditionalServiceInfo } from "@/lib/api/types";
 
-export type AdditionalService = Pick<
-  Tables<"additional_services_info">,
-  "id" | "title" | "description" | "image_url" | "price_hint"
->;
+// El `id` de cada servicio ("spa" | "comida" | "vinos") coincide con la
+// carpeta de ruta bajo app/servicios/ — el backend lo garantiza con un check
+// constraint, así que este enlace nunca puede apuntar a una página inexistente.
+export type AdditionalService = AdditionalServiceInfo;
 
 export default function ServiceCard({ service }: { service: AdditionalService }) {
   return (

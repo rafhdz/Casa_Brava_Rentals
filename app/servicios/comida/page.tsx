@@ -1,26 +1,16 @@
-import { format } from "date-fns";
-import { createClient } from "@/lib/supabase/server";
+import { serverFetchAll } from "@/lib/api/server";
+import { toNumber } from "@/lib/format";
 import FoodBookingForm from "@/components/FoodBookingForm";
 import BackButton from "@/components/BackButton";
+import type { FoodAvailability, FoodMenu } from "@/lib/api/types";
 
 export default async function ComidaServicePage() {
-  const supabase = await createClient();
-  const today = format(new Date(), "yyyy-MM-dd");
-
-  const [{ data: menus }, { data: availability }] = await Promise.all([
-    supabase
-      .from("food_menus")
-      .select("id, meal_type, name, price_per_person")
-      .order("meal_type", { ascending: true }),
-    // Días habilitados reales (ver CLAUDE.md, "Disponibilidad real de
-    // servicios adicionales"). A diferencia del spa no hay bloques ocupables:
-    // el servicio de cocina se oferta por día completo y varios huéspedes
-    // pueden pedir distintos tiempos de comida el mismo día.
-    supabase
-      .from("food_availability")
-      .select("available_date")
-      .gte("available_date", today)
-      .order("available_date", { ascending: true }),
+  // A diferencia del spa, aquí no hay bloques ocupables: la cocina se oferta
+  // por día completo y varios huéspedes pueden pedir distintos tiempos de
+  // comida el mismo día. El backend ya oculta los días pasados.
+  const [menus, availability] = await Promise.all([
+    serverFetchAll<FoodMenu>("/api/servicios/menus/"),
+    serverFetchAll<FoodAvailability>("/api/servicios/comida/disponibilidad/"),
   ]);
 
   return (
@@ -33,8 +23,15 @@ export default async function ComidaServicePage() {
         </p>
       </div>
       <FoodBookingForm
-        menus={menus ?? []}
-        availableDates={(availability ?? []).map((row) => row.available_date)}
+        // `price_per_person` viaja como string decimal desde DRF; se convierte
+        // aquí para que el formulario siga operando con números.
+        menus={menus.map((menu) => ({
+          id: menu.id,
+          meal_type: menu.meal_type,
+          name: menu.name,
+          price_per_person: toNumber(menu.price_per_person),
+        }))}
+        availableDates={availability.map((day) => day.available_date)}
       />
     </div>
   );

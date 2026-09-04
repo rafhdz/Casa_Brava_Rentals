@@ -1,28 +1,28 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/database.types";
+import { createContext, useContext, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { loginAction, logoutAction } from "@/app/actions/auth";
+import type { RoleType, Usuario } from "@/lib/api/types";
 
-export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
+// Sesión del lado del cliente.
+//
+// A diferencia de la versión con Supabase, este contexto **no** guarda estado
+// propio ni consulta el perfil por su cuenta: el token vive en cookies
+// httpOnly que el navegador no puede leer, así que quien resuelve la sesión es
+// el layout raíz (Server Component) y la entrega ya hidratada por prop. Eso
+// elimina de un golpe el parpadeo de carga inicial, la suscripción a
+// `onAuthStateChange` y la carrera entre el fetch del perfil y el del login
+// que hubo que sortear con un reintento.
+//
+// También desaparece el par `user` + `profile`: Django fusiona credenciales y
+// perfil en un solo modelo, así que aquí hay un único `user`.
 
-type LoginResult = {
-  error: string | null;
-  role: Profile["role"] | null;
-};
+type LoginResult = { error: string | null; role: RoleType | null };
 
 type AuthContextValue = {
-  user: User | null;
-  profile: Profile | null;
+  user: Usuario | null;
+  /** Hay una transición de sesión (login/logout) en vuelo. */
   isLoading: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
@@ -30,100 +30,44 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  // createBrowserClient mantiene un singleton interno; useState evita
-  // recrear la referencia en cada render sin necesidad de useMemo.
-  const [supabase] = useState(() => createClient());
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function AuthProvider({
+  initialUser,
+  children,
+}: {
+  /** Perfil resuelto en el servidor por app/layout.tsx. `null` si no hay sesión. */
+  initialUser: Usuario | null;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+  const [isLoading, startTransition] = useTransition();
 
-  // Contador que identifica la petición de perfil más reciente. Si el
-  // usuario cambia de sesión mientras un fetch anterior sigue en vuelo, la
-  // respuesta "vieja" se descarta en vez de pisar el estado actual.
-  const profileRequestId = useRef(0);
-
-  const loadProfile = useCallback(
-    async (nextUser: User | null): Promise<Profile | null> => {
-      const requestId = ++profileRequestId.current;
-
-      if (!nextUser) {
-        setProfile(null);
-        return null;
-      }
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", nextUser.id)
-        .single();
-
-      if (requestId !== profileRequestId.current) return data ?? null;
-      setProfile(data ?? null);
-      return data ?? null;
-    },
-    [supabase]
-  );
-
-  useEffect(() => {
-    let isMounted = true;
-
-    // Hidratación inicial: lee la sesión ya persistida en cookies (si la
-    // hay) antes de que dispare el primer evento de onAuthStateChange.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!isMounted) return;
-      setUser(session?.user ?? null);
-      void loadProfile(session?.user ?? null).finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
-    });
-
-    // Mantiene el estado sincronizado ante login/logout/refresh de token,
-    // incluido lo que pase en otras pestañas del mismo navegador.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!isMounted) return;
-      setUser(session?.user ?? null);
-      void loadProfile(session?.user ?? null);
-      setIsLoading(false);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, [supabase, loadProfile]);
+  // `initialUser` es la fuente de verdad, no una semilla de useState: cada
+  // `router.refresh()` vuelve a renderizar el layout en el servidor y baja el
+  // perfil actualizado. Copiarlo a estado obligaría a sincronizarlo con un
+  // efecto, justo el patrón que la regla react-hooks/set-state-in-effect
+  // prohíbe (ver CLAUDE.md).
+  const user = initialUser;
 
   async function login(email: string, password: string): Promise<LoginResult> {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const result = await loginAction(email, password);
 
-    if (error || !data.user) {
-      return { error: error?.message ?? "No se pudo iniciar sesión.", role: null };
+    if ("error" in result) {
+      return { error: result.error, role: null };
     }
 
-    // Reutiliza loadProfile (no una consulta aparte) para no disparar dos
-    // requests a `profiles` en paralelo justo después del sign-in: se
-    // observó que hacerlo corre una carrera real contra el fetch que
-    // dispara onAuthStateChange para el mismo evento SIGNED_IN — el cliente
-    // de Supabase todavía está propagando el token nuevo internamente y una
-    // de las dos peticiones concurrentes puede recibir 401. Un solo
-    // reintento cubre ese caso transitorio sin enmascarar errores reales
-    // (credenciales inválidas ya se filtraron arriba).
-    let profile = await loadProfile(data.user);
-    if (!profile) {
-      profile = await loadProfile(data.user);
-    }
-
-    return { error: null, role: profile?.role ?? null };
+    // Quien llama decide a dónde navegar (ver app/login/page.tsx); aquí solo
+    // se invalida el árbol para que el layout vuelva a leer la sesión nueva.
+    startTransition(() => router.refresh());
+    return { error: null, role: result.user.role };
   }
 
-  async function logout() {
-    await supabase.auth.signOut();
+  async function logout(): Promise<void> {
+    await logoutAction();
+    startTransition(() => router.refresh());
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

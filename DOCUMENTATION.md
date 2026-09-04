@@ -1,310 +1,306 @@
-# Guía del proyecto — Casa Brava Rentals (100% Data-Driven)
+# Guía del proyecto — Casa Brava Rentals
 
-Este documento explica, en términos sencillos, cómo está organizado el código y dónde tocar cada cosa. Está pensado para cualquier persona del equipo que necesite editar el proyecto.
+Guía práctica para el equipo: dónde vive cada cosa y qué archivo tocar para cambiarla. Para las convenciones técnicas y el porqué de cada decisión, ver [CLAUDE.md](CLAUDE.md). Para el detalle del backend, ver [backend/README.md](backend/README.md).
+
+---
 
 ## 1. Qué es esto
 
-Es el sistema de reservaciones de Casa Brava. Auth, el panel de administración, el flujo de reservar + carrito de servicios del huésped, la disponibilidad de los servicios adicionales y el contenido visual del Home (fotos, amenidades, tarjetas de servicios) ya son reales contra Supabase (ver secciones 5, 6, 7 y 8) — **no queda ningún dato de negocio mockeado en el repositorio**. Todavía no hay procesador de pagos real: el botón de pago simula la creación de una "intención de pago" y redirige a una pantalla de éxito estática.
+Sistema de reservaciones para una casa privada de renta, de acceso exclusivo por invitación. Un huésped invitado inicia sesión, reserva su estadía, agrega servicios adicionales (spa, comida, vinos) y paga; un administrador gestiona usuarios y reservaciones desde su propio panel.
+
+El proyecto son **dos aplicaciones separadas** que se comunican por HTTP:
+
+```
+┌──────────────────────────┐         ┌──────────────────────────┐
+│  Frontend                │  HTTP   │  Backend                 │
+│  Next.js 16 + React 19   │ ──────► │  Django 6.1 + DRF        │
+│  Tailwind CSS v4         │  JWT    │  PostgreSQL              │
+│  localhost:3000          │ ◄────── │  localhost:8000          │
+│  (raíz del repositorio)  │  JSON   │  (carpeta backend/)      │
+└──────────────────────────┘         └──────────────────────────┘
+```
+
+El frontend **no tiene base de datos propia**. Toda la información sale de la API del backend. Lo único que se guarda en el navegador es el carrito de servicios antes de pagarlo.
+
+Lo único todavía simulado es el **cobro**: el botón de pago lleva a una pantalla de éxito sin procesar dinero real.
+
+---
 
 ## 2. Cómo correrlo localmente
+
+Hacen falta **dos terminales**, una por aplicación. El frontend solo no sirve de mucho: sin el backend, las pantallas con datos fallan.
+
+### Antes de empezar
+
+- **Node.js 20+** y npm.
+- **Python 3.12+** y [`uv`](https://docs.astral.sh/uv/).
+- **PostgreSQL** (recomendado). Con SQLite el proyecto arranca, pero se pierde la protección contra reservas duplicadas — ver `backend/README.md` §3.
+
+### Terminal 1 — Backend
+
+```bash
+cd backend
+uv sync
+cp .env.example .env
+uv run python manage.py migrate
+uv run python manage.py seed_demo
+uv run python manage.py runserver
+```
+
+| Comando | Para qué |
+| --- | --- |
+| `uv sync` | Instala las dependencias de Python |
+| `cp .env.example .env` | Crea la configuración local (ajustar credenciales de la base ahí) |
+| `migrate` | Crea las tablas |
+| `seed_demo` | Carga datos de desarrollo. Se puede repetir sin duplicar |
+| `runserver` | Levanta la API en el puerto 8000 |
+
+Queda disponible:
+
+- API — <http://localhost:8000>
+- Documentación interactiva de la API — <http://localhost:8000/api/docs>
+- Admin de Django — <http://localhost:8000/admin> (requiere `uv run python manage.py createsuperuser`)
+
+### Terminal 2 — Frontend
 
 ```bash
 npm install
 npm run dev
 ```
 
-Luego abrir [http://localhost:3000](http://localhost:3000).
+Abrir <http://localhost:3000>.
 
-### Base de datos local (Supabase)
+### Que las dos se vean entre sí
 
-El proyecto ya tiene inicializado el CLI de Supabase (`supabase/` en la raíz) para desarrollo local con Docker, con el **esquema relacional inicial ya migrado** (tablas de perfiles, reservaciones y los tres servicios adicionales — ver sección 3 y el detalle en `CLAUDE.md`). **El login ya usa Supabase Auth de verdad, las tablas de usuarios y reservaciones del panel admin ya son CRUD real (ver sección 6), el flujo de reservar + carrito de servicios del huésped ya escribe en Supabase de forma transaccional (ver sección 7), y el contenido visual del Home (fotos, amenidades, servicios adicionales) también se lee en vivo desde Supabase** (ver sección 5). `lib/mock-data.ts` — el archivo que centralizaba todo este contenido en el prototipo original — ya no existe.
+- **Frontend** — archivo `.env.local` en la raíz:
+  ```
+  API_URL=http://localhost:8000
+  ```
+  Si falta, se asume ese mismo valor.
+- **Backend** — en `backend/.env`, `CORS_ALLOWED_ORIGINS` debe incluir `http://localhost:3000`.
 
-⚠️ Los contenedores de Supabase **no persisten** entre reinicios de Docker o de la máquina — si el login no funciona (o `docker ps` no muestra nada con "supabase" en el nombre), corre `npx supabase start` de nuevo antes de `npm run dev`.
+### Usuarios para probar
 
-```bash
-npx supabase start   # levanta los contenedores locales (requiere Docker corriendo)
-npx supabase stop    # los apaga
-npx supabase db reset  # recrea la base desde cero: aplica todas las migraciones + supabase/seed.sql
-```
+`seed_demo` crea tres cuentas. Todas usan la contraseña **`changeme123`** (solo desarrollo):
 
-Al correr `supabase start` la primera vez, imprime las URLs y claves del entorno local (API, Studio, `anon key`, `service_role key`, etc.) — esos valores van en `.env.local` (no versionado) como `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y **`SUPABASE_SERVICE_ROLE_KEY`** (esta última sin prefijo `NEXT_PUBLIC_` a propósito — es server-only, solo la usa el CRUD de usuarios del panel admin para invitar usuarios vía la Auth Admin API; ver sección 6 y el detalle en `CLAUDE.md`). Los clientes tipados viven en `lib/supabase/` (uno para Client Components, otro para Server Components, otro para el middleware, y otro con la Service Role Key para operaciones administrativas — ver sección 3 y el detalle en `CLAUDE.md`), y los tipos de las tablas se regeneran con:
+| Correo | Rol | Qué ve |
+| --- | --- | --- |
+| `admin@test.com` | Administrador | Panel completo en `/admin` |
+| `carlos.ruiz@example.com` | Propietario | Experiencia de huésped |
+| `maria.gomez@example.com` | Huésped | Experiencia de huésped |
 
-```bash
-npx supabase gen types typescript --local > lib/database.types.ts
-```
+### Otros comandos
 
-Hay que volver a correr ese comando cada vez que cambie el esquema (nueva migración, nueva tabla/columna/enum), para que `lib/database.types.ts` no quede desactualizado.
+| Comando | Qué hace |
+| --- | --- |
+| `npm run build` | Compila el frontend y verifica tipos |
+| `npm run lint` | Revisa el estilo del código del frontend |
+| `cd backend && uv run python manage.py test` | Corre las pruebas del backend |
 
-**Migraciones** viven en `supabase/migrations/` (una por cambio de esquema, nunca se editan una vez aplicadas en un entorno compartido — se crean con `npx supabase migration new <nombre>`). La primera, `20260901072551_init_schema.sql`, crea todo el modelo relacional descrito en la sección 3. La segunda, `20260902053910_add_payment_status_and_finalizada_rename.sql`, agrega `payment_status` a `reservations` y renombra `pasada` a `finalizada` en el ENUM `reservation_status` (ver sección 6, "Reservaciones"). La tercera, `20260903184500_enable_rls_policies.sql`, habilita Row Level Security y define las políticas de acceso por rol en las 12 tablas que existían entonces (ver sección 3.1 y sección 8). La cuarta, `20260903190848_add_availability_tables.sql`, agrega `spa_availability`/`food_availability` y las funciones `book_spa_slot`/`release_spa_booking`. La quinta, `20260903192511_fix_checkout_compensation.sql`, agrega `release_spa_slots_for_reservation` y las políticas de `DELETE` que la compensación del carrito necesitaba. La sexta, `20260903193417_reacquire_spa_slots.sql`, agrega `reacquire_spa_slots_for_reservation` — bloqueo preventivo contra double-booking al reactivar una reservación cancelada (ver sección 3.1). La séptima, `20260903200433_add_frontend_content_tables.sql`, agrega `property_photos`, `amenity_categories`, `amenities` y `additional_services_info` — el contenido visual del Home, con lo que `lib/mock-data.ts` se eliminó por completo (ver sección 5). `supabase/seed.sql` siembra datos de desarrollo (usuarios, tarifas, menús, vinos, masajistas, disponibilidad de spa/comida, fotos, amenidades y servicios adicionales) — se re-ejecuta automáticamente cada vez que corres `supabase db reset`.
-
-✅ **Row Level Security (RLS) ya está habilitado** en las 18 tablas del esquema, con políticas por rol (`admin`/`holder`/`guest`) — ver el detalle completo en la sección 3.1. Esto es una segunda capa de protección **además** de la que ya hacía cada Server Action (`requireAdmin()`/`requireAuth()`), no un reemplazo: la app sigue pasando siempre por las Server Actions, pero ahora un cliente con la `anon`/`authenticated` key ya no puede saltárselas y leer/escribir cualquier fila directamente.
+---
 
 ## 3. Estructura de carpetas
 
 ```
-middleware.ts           → Refresca la sesión de Supabase y aplica los guards de ruta en el servidor (ver sección 6)
-
-app/
-  layout.tsx          → Layout global (Navbar + Footer envolviendo todas las páginas, <Toaster /> de sonner montado junto a AuthProvider/CartProvider)
-  page.tsx             → Pantalla principal del huésped (home) — Server Component async: fetch real de property_photos/amenity_categories+amenities/additional_services_info (ver sección 5), ruta protegida por middleware.ts, requiere sesión activa (ver sección 6)
-  login/page.tsx        → Pantalla de acceso restringido, usa Supabase Auth real
-  register/page.tsx     → Pantalla de registro por invitación, ya conectada a Supabase Auth real (signUp + insert en profiles con role: "guest") — sin enlace desde la UI, solo accesible directamente en /register
-  register/actions.ts    → Server Action "use server": compensateFailedRegistration — revierte (borra) la cuenta de Auth recién creada si el insert en profiles falla (ver sección 6)
-  reservar/page.tsx     → Server Component: fetch de fare_types/property_settings reales, renderiza ReservarForm — ruta protegida por middleware.ts
-  actions/checkout.ts    → Server Actions ("use server"): checkoutStay, checkoutCartServices — checkout transaccional del huésped (ver sección 7)
-  servicios/
-    spa/page.tsx          → Server Component: fetch de spa_masseuses reales, renderiza SpaBookingForm — ruta protegida por middleware.ts
-    comida/page.tsx        → Server Component: fetch de food_menus reales, renderiza FoodBookingForm — ruta protegida por middleware.ts
-    vinos/page.tsx          → Server Component: fetch de wines/wine_packages reales, renderiza WineBookingForm — ruta protegida por middleware.ts
-  carrito/page.tsx       → Carrito de servicios adicionales (listado, eliminar, total, pagar) — ruta protegida por middleware.ts
-  pago-exitoso/page.tsx → Pantalla estática de confirmación de pago (reutilizada por /reservar y /carrito)
-  admin/page.tsx        → Dashboard de administración (usuarios y reservaciones reales) — ruta protegida por middleware.ts, requiere role === "admin"
-  admin/actions.ts      → Server Actions ("use server"): createUser, updateUser, deleteUser — CRUD real de la tabla profiles (ver sección 6)
-  admin/reservations/page.tsx    → CRUD real de reservaciones — ruta protegida por middleware.ts (mismo prefijo /admin), requiere role === "admin"
-  admin/reservations/actions.ts  → Server Actions ("use server"): getReservations, createReservation, updateReservation, deleteReservation — CRUD real de la tabla reservations (ver sección 6)
-  perfil/page.tsx       → Vista de perfil del usuario con sesión activa (datos reales de Supabase) — protegida por middleware.ts y con su propia redirección inline como respaldo
-
-components/
-  Navbar.tsx            → Barra superior (logo + Carrito/Perfil/Iniciar sesión/Cerrar sesión según la sesión)
-  Footer.tsx            → Pie de página
-  BackButton.tsx          → Botón "← Volver" (useRouter().back()), usado en las vistas de servicios, /reservar y /carrito
-  Calendar.tsx            → Wrapper delgado sobre `react-day-picker` con el tema Tailwind del proyecto ya aplicado (classNames, ícono de Chevron con lucide-react, locale español) — usado por DateRangeSelector, SpaBookingForm y FoodBookingForm
-  Carousel.tsx          → Carrusel de fotos de la propiedad
-  AmenitiesList.tsx      → Lista de amenidades con íconos
-  ServiceCard.tsx         → Tarjeta individual de un servicio adicional, con botón "Reservar" hacia /servicios/<id>
-  DateRangeSelector.tsx   → Selector de fecha de llegada/salida
-  PricingOptions.tsx      → Radio buttons de tipo de tarifa, sobre fare_types reales
-  BookingSummary.tsx      → Desglose de cobro (noches + recargo + depósito)
-  ReservarForm.tsx        → Contenido interactivo de /reservar (fechas, tarifa, resumen, checkoutStay) — Client Component montado por app/reservar/page.tsx
-  UsersTable.tsx          → Tabla de usuarios invitados (dashboard admin) — CRUD real sobre la tabla profiles
-  ReservationsTable.tsx   → Tabla de reservaciones (dashboard admin) — CRUD real sobre la tabla reservations
-  SpaBookingForm.tsx      → Formulario de reserva de SPA (masajista → día → hora), catálogo de masajistas Y disponibilidad reales vía props
-  FoodBookingForm.tsx     → Formulario de reserva de Comida (día → tiempo de comida → menú → personas), catálogo de menús Y días habilitados reales vía props
-  WineBookingForm.tsx     → Formulario de compra de vinos (botellas individuales + paquete de 4), catálogo de vinos real vía props
-  CartView.tsx            → Contenido interactivo de /carrito (listado, eliminar, total, checkoutCartServices)
-  CartItemRow.tsx          → Fila individual del carrito, formatea los detalles según el tipo de servicio
-
-lib/
-  format.ts             → Formateadores de presentación: formatSimulatedDate, formatTimeSlot (extraídos de lib/mock-data.ts, eliminado — ver sección 5)
-  cart-types.ts         → Tipos del carrito: CartItem, SpaReservation, FoodReservation, WineOrderBottle, WineOrder (extraídos de lib/mock-data.ts, eliminado — ver sección 5)
-  AuthContext.tsx       → Estado global de sesión REAL de Supabase Auth (Context; ya no usa localStorage — ver sección 6). También exporta el tipo `Profile`, reutilizado por el CRUD de usuarios.
-  CartContext.tsx       → Estado global del carrito de servicios adicionales (Context + localStorage, namespaced por guest_id — ver sección 7)
-  checkout-errors.ts    → RESERVATION_REQUIRED_ERROR — vive fuera de actions/checkout.ts porque un archivo "use server" solo puede exportar funciones async
-  database.types.ts     → Tipos TypeScript generados automáticamente desde el esquema de Supabase local (no editar a mano, se regenera con el CLI)
-  supabase/
-    env.ts                → Valida y exporta NEXT_PUBLIC_SUPABASE_URL/ANON_KEY ya tipadas como string
-    client.ts             → createClient() con createBrowserClient — para Client Components
-    server.ts             → createClient() (async) con createServerClient — para Server Components/Actions/Route Handlers
-    middleware.ts          → updateSession(request) — refresco de sesión + guards de ruta, usado por middleware.ts en la raíz
-    admin.ts               → createAdminClient() con la Service Role Key (bypassa RLS, habilita la Auth Admin API) — server-only, solo lo usa app/admin/actions.ts
-    require-admin.ts       → requireAdmin() — guard compartido (sesión + role === "admin") usado por app/admin/actions.ts y app/admin/reservations/actions.ts
-    require-auth.ts        → requireAuth() — guard compartido (solo sesión, sin chequeo de rol) usado por app/actions/checkout.ts
-    reservation-rules.ts   → validateDates, hasOverlappingConfirmedReservation, OVERLAP_ERROR — reutilizados por app/admin/reservations/actions.ts y app/actions/checkout.ts
-
-supabase/
-  config.toml           → Configuración del entorno local de Supabase (puertos, servicios habilitados, etc.), generado por `supabase init`
-  seed.sql              → Datos de desarrollo que se insertan al correr `supabase db reset` (usuarios, tarifas, catálogos de servicios, disponibilidad, fotos, amenidades, servicios adicionales)
-  migrations/
-    20260901072551_init_schema.sql  → Migración inicial: ENUMs, tablas de perfiles/reservaciones/servicios, llaves foráneas (ver sección 3.1)
-    20260902053910_add_payment_status_and_finalizada_rename.sql  → Agrega payment_status a reservations y renombra 'pasada' a 'finalizada' en reservation_status (ver sección 6)
-    20260903184500_enable_rls_policies.sql  → Habilita RLS y define las políticas de acceso por rol (admin/holder/guest) en las 12 tablas que existían entonces (ver sección 3.1)
-    20260903190848_add_availability_tables.sql  → Agrega spa_availability/food_availability y las funciones book_spa_slot/release_spa_booking (ver sección 3.1)
-    20260903192511_fix_checkout_compensation.sql  → Agrega release_spa_slots_for_reservation y las políticas de DELETE que la compensación del carrito necesitaba (ver sección 3.1)
-    20260903193417_reacquire_spa_slots.sql  → Agrega reacquire_spa_slots_for_reservation — bloqueo preventivo contra double-booking al reactivar una reservación cancelada (ver sección 3.1)
-    20260903200433_add_frontend_content_tables.sql  → Agrega property_photos/amenity_categories/amenities/additional_services_info — contenido visual del Home (ver sección 5)
+Casa_Brava_Rentals/
+├── app/                          Rutas del frontend (App Router)
+│   ├── layout.tsx                Layout raíz: Navbar, Footer, sesión y carrito
+│   ├── page.tsx                  Home (carrusel, amenidades, servicios)
+│   ├── globals.css               Estilos base y tokens de Tailwind
+│   ├── login/page.tsx            Inicio de sesión
+│   ├── register/page.tsx         Alta de huésped
+│   ├── perfil/page.tsx           Datos de la sesión y cerrar sesión
+│   ├── reservar/page.tsx         Reservar la estadía
+│   ├── carrito/page.tsx          Carrito de servicios adicionales
+│   ├── pago-exitoso/page.tsx     Confirmación (pago simulado)
+│   ├── servicios/
+│   │   ├── spa/page.tsx          Reservar sesión de spa
+│   │   ├── comida/page.tsx       Reservar servicio de cocina
+│   │   └── vinos/page.tsx        Pedido de vinos
+│   ├── admin/
+│   │   ├── page.tsx              Panel: usuarios invitados
+│   │   ├── actions.ts            Crear/editar/eliminar usuarios
+│   │   └── reservations/
+│   │       ├── page.tsx          Panel: reservaciones
+│   │       └── actions.ts        CRUD de reservaciones
+│   └── actions/
+│       ├── auth.ts               Iniciar sesión, registrarse, cerrar sesión
+│       └── checkout.ts           Pagar la estadía y los servicios
+│
+├── components/                   Componentes reutilizables (ver §4)
+│
+├── lib/
+│   ├── api/                      ⭐ Toda la comunicación con el backend
+│   │   ├── config.ts             URL de la API y nombres de cookies
+│   │   ├── types.ts              Tipos de todo lo que devuelve la API
+│   │   ├── client.ts             Petición HTTP, errores y paginación
+│   │   ├── jwt.ts                Lectura de los datos del token
+│   │   ├── session.ts            Cookies de sesión
+│   │   └── server.ts             Punto de entrada desde el servidor
+│   ├── AuthContext.tsx           Sesión disponible para los componentes
+│   ├── CartContext.tsx           Carrito (navegador)
+│   ├── cart-types.ts             Tipos del carrito
+│   ├── checkout-errors.ts        Mensaje compartido servidor/cliente
+│   └── format.ts                 Formato de fechas, horas y dinero
+│
+├── middleware.ts                 Protección de rutas y refresco de sesión
+├── public/                       Imágenes e íconos
+│   ├── images/                   Fotos de la casa y de los servicios
+│   └── icons/                    Íconos de amenidades y del sistema
+│
+└── backend/                      Aplicación Django (ver backend/README.md)
+    ├── casabrava_core/           Configuración y rutas de la API
+    ├── usuarios/                 Perfiles y autenticación
+    ├── propiedades/              Configuración, tarifas y contenido del Home
+    ├── servicios/                Catálogos y disponibilidad
+    ├── proveedores/              Masajistas
+    ├── reservaciones/            Estadías, servicios contratados y reglas
+    └── pagos/                    Movimientos de cobro
 ```
 
-### 3.1 Modelo relacional (Supabase)
+---
 
-Definido en `supabase/migrations/20260901072551_init_schema.sql` y ampliado por las migraciones posteriores. Resumen de las tablas (todas en el schema `public`, con `id` de tipo `uuid`):
+## 4. Dónde editar los componentes visuales
 
-| Tabla | Para qué sirve | Llaves foráneas |
-|---|---|---|
-| `profiles` | Datos de cada usuario (huésped, admin, etc.) | `id` → `auth.users(id)` |
-| `property_settings` | Tarifa por noche y depósito de seguridad — usada por `/reservar` real | — |
-| `fare_types` | Tipos de tarifa (Estándar / Flexible), con su recargo — usada por `/reservar` real | — |
-| `reservations` | Una reservación de la casa (fechas, tarifa, monto, estado de la reserva y estado del pago) | `guest_id` → `profiles`, `fare_type_id` → `fare_types` |
-| `spa_masseuses` | Catálogo de masajistas — leído en vivo por `app/servicios/spa/page.tsx` | — |
-| `spa_availability` | Bloques de hora ofertados por masajista (una fila por masajista + día + hora, con bandera `is_booked`) — leído en vivo por `app/servicios/spa/page.tsx` | `masseuse_id` → `spa_masseuses` |
-| `spa_bookings` | Una sesión de spa reservada dentro de una reservación | `reservation_id` → `reservations`, `masseuse_id` → `spa_masseuses` |
-| `food_menus` | Catálogo de menús por tiempo de comida — leído en vivo por `app/servicios/comida/page.tsx` | — |
-| `food_availability` | Días habilitados para el servicio de cocina — leído en vivo por `app/servicios/comida/page.tsx` | — |
-| `food_bookings` | Un pedido de comida dentro de una reservación | `reservation_id` → `reservations`, `menu_id` → `food_menus` |
-| `wines` | Catálogo de botellas individuales — leído en vivo por `app/servicios/vinos/page.tsx` | — |
-| `wine_packages` | Catálogo de paquetes de vino — leído en vivo por `app/servicios/vinos/page.tsx` | — |
-| `wine_orders` | Un pedido de vinos dentro de una reservación | `reservation_id` → `reservations` |
-| `wine_order_items` | Cada línea de un pedido de vinos (botella suelta o paquete) | `wine_order_id` → `wine_orders`, `wine_id` → `wines` (opcional), `wine_package_id` → `wine_packages` (opcional) |
-| `property_photos` | Fotos del carrusel del Home, con `label` y `sort_order` — leída en vivo por `app/page.tsx` | — |
-| `amenity_categories` | Categorías de amenidades de la casa (ej. "Cocina y comedor"), con `sort_order` — leída en vivo por `app/page.tsx` | — |
-| `amenities` | Cada amenidad dentro de una categoría, con `icon_url` y `sort_order` — leída en vivo por `app/page.tsx` | `category_id` → `amenity_categories` |
-| `additional_services_info` | Título/descripción/imagen/precio de las 3 tarjetas de "Servicios adicionales" del Home (`id` es texto: `"spa"`/`"comida"`/`"vinos"`) — leída en vivo por `app/page.tsx` | — |
+| Quiero cambiar… | Archivo |
+| --- | --- |
+| Barra superior, logo, botón de carrito | [components/Navbar.tsx](components/Navbar.tsx) |
+| Pie de página | [components/Footer.tsx](components/Footer.tsx) |
+| Carrusel de fotos (zoom, auto-avance, flechas) | [components/Carousel.tsx](components/Carousel.tsx) |
+| Lista de amenidades | [components/AmenitiesList.tsx](components/AmenitiesList.tsx) |
+| Tarjetas de servicios del Home | [components/ServiceCard.tsx](components/ServiceCard.tsx) |
+| Calendario (estilos de celdas) | [components/Calendar.tsx](components/Calendar.tsx) |
+| Selección de fechas de la estadía | [components/DateRangeSelector.tsx](components/DateRangeSelector.tsx) |
+| Opciones de tarifa | [components/PricingOptions.tsx](components/PricingOptions.tsx) |
+| Resumen de cobro de la estadía | [components/BookingSummary.tsx](components/BookingSummary.tsx) |
+| Formulario de la estadía completo | [components/ReservarForm.tsx](components/ReservarForm.tsx) |
+| Formularios de spa / comida / vinos | `components/SpaBookingForm.tsx`, `FoodBookingForm.tsx`, `WineBookingForm.tsx` |
+| Carrito y sus renglones | [components/CartView.tsx](components/CartView.tsx), [components/CartItemRow.tsx](components/CartItemRow.tsx) |
+| Tabla de usuarios del panel | [components/UsersTable.tsx](components/UsersTable.tsx) |
+| Tabla de reservaciones del panel | [components/ReservationsTable.tsx](components/ReservationsTable.tsx) |
+| Botón "Volver" | [components/BackButton.tsx](components/BackButton.tsx) |
 
-Notas importantes:
+**Estilo general:** todo es Tailwind CSS v4 escrito directamente en las clases. No hay archivo `tailwind.config.js`; los tokens se definen con `@theme` en [app/globals.css](app/globals.css). La paleta es escala de grises (`neutral-*`) con negro para los botones principales, y el diseño se escribe **mobile-first**.
 
-- **`reservations` usa soft delete**: tiene una columna `deleted_at` en vez de borrarse físicamente con `DELETE`. Cualquier consulta que liste reservaciones debe agregar `where deleted_at is null` a mano.
-- **`reservations.status` y `reservations.payment_status` son independientes**: el primero es el ciclo de vida operativo (`pendiente`/`confirmada`/`cancelada`/`finalizada`), el segundo el del cobro (`pendiente`/`parcial`/`completado`/`reembolsado`, columna agregada en la segunda migración). El CRUD de `/admin/reservations` no permite que una reservación nueva o editada ocupe fechas que ya tiene otra reservación `confirmada` — ver sección 6 para el detalle de la consulta de solapamiento.
-- **RLS habilitado en las 18 tablas**, vía `supabase/migrations/20260903184500_enable_rls_policies.sql` (las 12 originales), `20260903190848_add_availability_tables.sql` (las dos de disponibilidad), `20260903192511_fix_checkout_compensation.sql` (las políticas de borrado que faltaban) y `20260903200433_add_frontend_content_tables.sql` (las cuatro de contenido del Home). El rol del usuario se resuelve con la función `public.current_user_role()` (`SECURITY DEFINER`, consulta `profiles.role` bypassando RLS para no recursionar sobre sí misma), reutilizada por todas las políticas de admin/holder. Permisos por tabla:
-  - **`profiles`**: admin, acceso total. Holder, solo lectura de todos los perfiles. Guest, lectura y escritura únicamente de su propia fila (`auth.uid() = id`) — un trigger (`prevent_profile_privilege_escalation`) bloquea a nivel de base de datos que un no-admin cambie `role`/`status` en cualquier `UPDATE`, incluso el de su propia fila (RLS es por fila, no por columna, así que la política sola no alcanza para eso).
-  - **Catálogos** (`property_settings`, `fare_types`, `spa_masseuses`, `food_menus`, `wines`, `wine_packages`, `spa_availability`, `food_availability`): lectura para cualquier usuario autenticado (huésped, holder o admin). Insert/update/delete exclusivo de admin. La única excepción son las dos funciones de abajo, que escriben `spa_availability` en nombre del huésped tras validar por sí mismas que la reservación le pertenezca.
-  - **Contenido del Home** (`property_photos`, `amenity_categories`, `amenities`, `additional_services_info`): mismo patrón de escritura que los catálogos de arriba (insert/update/delete exclusivo de admin), pero con lectura **pública** — cubre también usuarios anónimos (`anon`), no solo `authenticated`, porque es contenido de marketing sin datos sensibles (ver sección 5).
-  - **`reservations`**: admin, acceso total. Holder, solo lectura de todas las reservaciones. Guest, solo puede insertar y leer las suyas (`guest_id = auth.uid()`) — sin update/delete: los cambios de `status`/`payment_status` y el soft delete siguen siendo exclusivos del admin, vía las Server Actions de `/admin/reservations`.
-  - **Bookings de servicios** (`spa_bookings`, `food_bookings`, `wine_orders`, `wine_order_items`): admin, acceso total. Holder, solo lectura de todos. Guest, solo puede insertar/leer si la reservación asociada (`reservation_id`, o `wine_order_id` → `reservation_id` en el caso de `wine_order_items`) le pertenece — resuelto con un `EXISTS` contra `reservations`.
-  - **Borrado por el huésped**: solo `food_bookings` y `wine_orders` tienen política de `DELETE`, y existe por una razón concreta — que la compensación del carrito funcione (ver más abajo). Es más estrecha que la de lectura/inserción: además de que la reservación sea suya, tiene que seguir **activa** (`pendiente`/`confirmada`, sin `deleted_at`), así que un huésped no puede borrar servicios de una estadía ya cancelada o finalizada. `wine_order_items` no necesita política: se va en cascada con su `wine_order`. `spa_bookings` tampoco tiene: su borrado pasa siempre por `release_spa_booking()`, para que nunca se borre un booking sin liberar su bloque de horario.
-  - Esto es una segunda capa de protección — la app sigue pasando siempre por las Server Actions (`requireAdmin()`/`requireAuth()`), pero ahora esa validación también corre a nivel de base de datos, así que un cliente con la `anon`/`authenticated` key ya no puede saltárselas.
-- **Disponibilidad y control de colisiones de SPA** (migración `20260903190848_add_availability_tables.sql`): `spa_availability` guarda **una fila por bloque de hora** (masajista + día + hora) en vez de un arreglo de horas por día, para que cada bloque pueda marcarse ocupado individualmente. Dos funciones de Postgres lo gestionan:
-  - `book_spa_slot(...)` toma el bloque **y** crea la fila de `spa_bookings` en una sola transacción, con la fila de disponibilidad bloqueada (`select ... for update`) mientras verifica que siga libre y que ninguna reservación `pendiente`/`confirmada` la haya ocupado. Es lo que impide que dos huéspedes reserven el mismo horario: el segundo espera al primero y luego recibe "El horario seleccionado ya fue ocupado por otra reservación."
-  - `release_spa_booking(id)` es su compensación: borra la reserva y libera el bloque. La usa `checkoutCartServices` si el carrito falla a medias.
-  - `release_spa_slots_for_reservation(id)` libera **todos** los bloques de una reservación **sin borrar sus bookings** (el historial de servicios contratados se conserva). Solo la puede ejecutar un admin, y la llaman `updateReservation` (al cancelar) y `deleteReservation` (soft delete) — ver el punto siguiente.
-  - `reacquire_spa_slots_for_reservation(id)` (migración `20260903193417_reacquire_spa_slots.sql`) es la contraparte: al reactivar una reservación (`cancelada`/`finalizada` → `pendiente`/`confirmada`), vuelve a bloquear (`select ... for update`) y marcar `is_booked = true` los bloques de sus `spa_bookings`. Si alguno ya fue tomado por otra reservación activa mientras tanto, lanza una excepción con prefijo `SPA_SLOT_TAKEN` en vez de dejar pasar la reactivación — ver el punto siguiente.
-  - `food_availability` **no** tiene equivalente: el servicio de cocina se oferta por día completo y no compite entre huéspedes, así que solo se valida que el día siga habilitado.
-  - **Cancelar o eliminar una reservación devuelve sus horarios de spa al inventario**: al ponerla en `cancelada` o al eliminarla (soft delete) desde `/admin/reservations`, esos bloques vuelven a aparecer disponibles en `/servicios/spa`. Las sesiones contratadas siguen registradas — no se borra nada, solo deja de bloquearse el calendario. Si por alguna razón la liberación falla, el panel lo dice explícitamente ("el cambio se guardó, pero no se pudieron liberar los horarios…") en vez de callarlo.
-  - **Reactivar ya está protegido contra double-booking**: si se cancela una reservación (sus horarios se liberan) y alguien más los toma antes de que se regrese la primera a `pendiente`/`confirmada`, `updateReservation` detecta esa transición y llama a `reacquire_spa_slots_for_reservation(id)` **antes** de aplicar el cambio de status (al revés que la liberación, que corre después). Si algún bloque ya no está libre, la reactivación se aborta por completo — sin cambiar el `status` de la reservación — y el panel muestra "No se puede reactivar la reservación: uno o más horarios de SPA originales ya fueron ocupados por otro huésped." Si están libres, se vuelven a marcar ocupados y la reactivación sigue normalmente.
-- `supabase/seed.sql` llena `profiles`, `property_settings`, `fare_types`, `spa_masseuses`, `food_menus`, `wines`, `wine_packages`, `spa_availability`, `food_availability`, `property_photos`, `amenity_categories`, `amenities` y `additional_services_info` con datos de desarrollo. **Las fechas de disponibilidad se siembran relativas a `current_date`** (`current_date + n`), no como fechas fijas, para que cualquier `supabase db reset` deje el entorno con disponibilidad vigente sin editar el seed. Las tablas de reservaciones y bookings quedan vacías al arrancar — se llenan con uso real de la app (`/reservar`, `/carrito`, o los formularios "Crear..." del panel admin).
+---
 
-Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `components/`. Si es contenido de negocio (texto, precio, imagen), vive en Supabase — ver la sección 5 para dónde editar cada tabla.**
+## 5. Dónde editar el contenido (todo vive en el backend)
 
-## 4. Dónde editar los componentes visuales principales
+Ningún texto, precio ni imagen de negocio está escrito en el código del frontend. Para cambiarlos hay que editar los datos en el backend, desde el **admin de Django** (<http://localhost:8000/admin>) o directamente en la base.
 
-- **Carrusel de fotos**: la lógica de navegación (flechas, puntos) está en [components/Carousel.tsx](components/Carousel.tsx). Usa `<Image>` de `next/image` (`fill` + `object-contain` + `sizes`, `priority` solo en la primera foto) sobre los archivos reales servidos desde `public/images/`; la etiqueta (`label`) se muestra debajo de la foto. Cada fila de la tabla `property_photos` (ver sección 5) requiere `url` (ruta pública de la imagen, ej. `/images/jardin_1.jpeg`), `label` y `sort_order` (posición en el recorrido del carrusel).
-  - **Auto-avance**: un `useEffect` con `setInterval` avanza a la siguiente foto cada 4000 ms (`AUTO_ROTATE_INTERVAL_MS`), limpiando el intervalo en el cleanup del efecto. El efecto depende de `index`, así que cualquier interacción manual (flechas o puntos) reinicia el conteo de 4s — en la práctica, pausa temporalmente el auto-avance sin necesitar estado adicional.
-  - **Pausa al pasar el cursor**: el contenedor tiene `onMouseEnter`/`onMouseLeave` que activan/desactivan un estado `isPaused`; mientras está en `true`, el efecto de auto-avance no arranca ningún intervalo.
-  - **Transición entre fotos**: cada foto usa `key={photo.id}` en el `<Image>` para forzar su remonte al cambiar, combinado con una animación CSS `fade-in` (`@keyframes` definido en [app/globals.css](app/globals.css), aplicada vía `[animation:fade-in_700ms_ease-in-out]`) que produce el efecto de desvanecimiento al entrar cada foto nueva.
-  - **Zoom interactivo con paneo**: un estado `zoom` entre `1` y `3` se controla de tres formas — dos botones flotantes con íconos `<ZoomIn />`/`<ZoomOut />` de `lucide-react` en la esquina superior derecha (pasos de `0.5`, estilo `bg-neutral-900/70`), la rueda del mouse sobre la foto (pasos de `0.15`, capturada con un listener nativo `wheel` agregado en un `useEffect` con `{ passive: false }`, ya que React trata `onWheel` como pasivo por defecto y no deja hacer `preventDefault()` ahí — necesario para bloquear el scroll de la página mientras se hace zoom), y doble clic sobre la imagen (alterna entre `1` y un acercamiento rápido de `2.5` centrado en el punto del clic). El zoom se aplica como `transform: scale(zoom)` sobre el `<Image>` con `transition-transform duration-200 ease-out`. El contenedor de la foto mantiene `overflow-hidden` para que la imagen ampliada no se desborde. Con `zoom > 1`, mover el cursor sobre la foto (o hacer scroll) actualiza un estado `transformOrigin` (posición del cursor en porcentaje respecto al contenedor, calculado con `getBoundingClientRect()`) para desplazarse por la imagen ampliada. El cursor cambia según el estado: `cursor-zoom-in` en reposo, `cursor-grab` una vez ampliada la imagen, y `cursor-grabbing` mientras se mantiene presionado el botón del mouse (con un listener global de `mouseup` en un `useEffect` para no dejar el cursor "atorado" en grabbing si se suelta fuera del carrusel). Tanto el `zoom` como el `transformOrigin` se reinician a sus valores por defecto (`1` y `"50% 50%"`) cada vez que cambia la foto (manual o por auto-avance) — útil para examinar de cerca fotos verticales o con detalle. Las flechas (íconos `<ChevronLeft />`/`<ChevronRight />` de `lucide-react`) y los botones de zoom detienen la propagación de sus eventos de mouse (`stopPropagation`) para no disparar el paneo/zoom de la imagen que está debajo.
-- **Tarjetas de "Servicios Adicionales"** (Comida, SPA/Masajes, Paquete de Vinos): el diseño de cada tarjeta está en [components/ServiceCard.tsx](components/ServiceCard.tsx), que usa `<Image>` de `next/image` (contenedor `relative h-48` + `object-cover` + `sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"`, acorde a la grilla `sm:grid-cols-2 lg:grid-cols-3` en la que se muestran) en vez del placeholder gris. El contenido (título, descripción, precio) se edita en la tabla `additional_services_info` (ver sección 5), no en el componente. Cada fila requiere también `image_url` (ruta pública a la fotografía en `public/images/`, ej. `/images/servicio_comida_holder.jpg`) — sin ese campo, `ServiceCard` no puede renderizar la tarjeta.
-- **Amenidades**: el diseño está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx), que itera primero por **categoría** (subtítulo tipo Airbnb) y luego por cada amenidad dentro de ella, mostrando su ícono `.svg` (tag `<img>` nativo, no `next/image`, porque el optimizador de imágenes de Next.js no sirve SVG sin habilitar `dangerouslyAllowSVG` en `next.config.ts`) seguido del texto. El contenido (categorías, amenidades y la ruta `icon_url` de cada ícono) se edita en las tablas `amenity_categories`/`amenities` (ver sección 5); los archivos `.svg` reales viven en `public/icons/amenities/<categoría>/`.
-- **Tablas del dashboard de administración**: el diseño de la tabla de usuarios está en [components/UsersTable.tsx](components/UsersTable.tsx) (`/admin`) y el de reservaciones en [components/ReservationsTable.tsx](components/ReservationsTable.tsx) (`/admin/reservations`). Ambas son CRUD real sobre Supabase (`profiles` y `reservations` respectivamente); para agregar datos de prueba se usan los botones "Crear usuario"/"Crear reservación" de cada tabla.
-- **Flujos de reserva de servicios adicionales** (SPA, Comida, Vinos): cada uno vive en su propio componente cliente — [components/SpaBookingForm.tsx](components/SpaBookingForm.tsx), [components/FoodBookingForm.tsx](components/FoodBookingForm.tsx), [components/WineBookingForm.tsx](components/WineBookingForm.tsx) — montado en su página bajo `app/servicios/<id>/page.tsx`, que es un Server Component: hace el `select` real del catálogo correspondiente (masajistas, menús, vinos) y se lo pasa por props. Todos calculan su propio precio y llaman a `addToCart()` (ver `lib/CartContext.tsx` más abajo) al enviar el formulario; el botón "Reservar" de cada `ServiceCard` en el Home enlaza directamente a `/servicios/<id>` porque el `id` de `additional_services_info` coincide con el nombre de la carpeta de ruta (un `check` constraint en el esquema hace ese contrato explícito).
-- **Carrito** ([app/carrito/page.tsx](app/carrito/page.tsx)): la interactividad vive en [components/CartView.tsx](components/CartView.tsx) (listado vía [components/CartItemRow.tsx](components/CartItemRow.tsx), eliminar item, total y botón "Pagar servicios"), mientras que la página en sí es un Server Component "limpio" — la protección de ruta ya no vive en su JSX, corre en `middleware.ts` (ver sección 6).
-- **Botón "Volver"**: [components/BackButton.tsx](components/BackButton.tsx) es un componente cliente minimalista (`useRouter().back()` de `next/navigation`, ícono `<ArrowLeft />` de `lucide-react` junto al texto) montado arriba del contenido en `app/servicios/spa/page.tsx`, `app/servicios/comida/page.tsx`, `app/servicios/vinos/page.tsx`, `app/reservar/page.tsx`, `app/carrito/page.tsx` y `app/perfil/page.tsx`, para que el usuario nunca quede "atrapado" en esas vistas de flujo. Al ser Server Components, importar `<BackButton />` (Client Component) no obliga a convertir la página entera en cliente — `app/reservar/page.tsx` es Server Component desde que se conectó a `fare_types`/`property_settings` reales (su estado interactivo vive en `components/ReservarForm.tsx`); `app/perfil/page.tsx` sigue siendo Client Component por su propio estado.
-- **Calendarios** ([components/Calendar.tsx](components/Calendar.tsx)): wrapper `"use client"` sobre `<DayPicker>` de `react-day-picker` (ver regla de librerías headless permitidas en [CLAUDE.md](CLAUDE.md)). No importa el CSS por defecto de la librería — en vez de eso, le pasa un `classNames` fijo que mapea cada pieza interna (`day`, `day_button`, `selected`, `range_start`/`range_middle`/`range_end`, `outside`, `disabled`, `today`, `nav`, `button_previous`/`button_next`, etc., ver el enum `UI`/`DayFlag`/`SelectionState` de la librería) a clases de Tailwind con la paleta `neutral` del proyecto (celdas `h-10 w-10`, encabezados de día en `text-neutral-500` centrados), y reemplaza el `Chevron` por defecto con uno propio que usa `<ChevronLeft />`/`<ChevronRight />` de `lucide-react`. El locale es español (`import { es } from "react-day-picker/locale"`). Un detalle importante para quien lo edite: react-day-picker puede activar varios modificadores a la vez sobre la misma celda (ej. un día puede ser `selected` **y** `range_start`, o `outside` **y** `disabled`, simultáneamente), y las clases de todos los modificadores activos terminan en el mismo `class="..."` del `<td>`. Cuando dos de esas clases fijan la misma propiedad CSS (color, fondo, radio) con la misma especificidad, gana la que Tailwind coloca más tarde en su hoja de estilos generada — un orden interno de la librería, no el orden en este objeto ni en el atributo `class`; se verificó empíricamente que ese orden **no** favorece a la clase semánticamente "más específica" (p.ej. `text-neutral-700` de `day` le ganaba a `text-neutral-300` de `disabled`, dejando los días deshabilitados con el mismo color que los habilitados). Por eso toda clase pensada para sobreescribir el estilo por defecto de `day` (`outside`, `disabled`, `range_start`/`range_end`/`range_middle`) usa `!important` en todas sus propiedades, no solo en la que a simple vista parece necesitarlo — incluyendo el bg/texto de `range_start`/`range_end`, necesario para que el check-in/check-out se siga leyendo bien cuando cae justo en un día "outside" (relleno del mes siguiente/anterior). `range_start`/`range_end` además fijan explícitamente el lado contrario a `-none` (no solo el lado propio a `-full`) para que el rango se vea como una píldora continua sin depender de si `rounded-full` (de `selected`, activo a la vez) gana en las esquinas que no se están forzando. Se usa en tres lugares, cada uno con su propia lógica de fechas (todas basadas en `date-fns` para convertir entre `string` ISO y `Date`, evitando el bug de `new Date("yyyy-MM-dd")` que en JS nativo se interpreta en UTC y puede desfasar un día según la zona horaria del navegador):
-  - **[components/DateRangeSelector.tsx](components/DateRangeSelector.tsx)** (usado en `/reservar`, dentro de `ReservarForm.tsx`): `mode="range"`, con `disabled={[{ before: today }, ...disabledBookedRanges]}` — además de las fechas pasadas, deshabilita cada reserva `confirmada` real recibida por props (`bookedRanges`, ver sección 7 y CLAUDE.md "Checkout de huésped" para el detalle del intervalo semi-abierto). También pasa `excludeDisabled` a `<Calendar>`: si el usuario arrastra un rango que termina "saltando" por encima de una reserva bloqueada, react-day-picker reinicia la selección en vez de permitir un rango inválido (documentado desde `v9.0.2`, ver `daypicker.dev/docs/selection-modes#exclude-disabled`) — no hace falta validación manual en `onSelect`. Mantiene el mismo contrato de props de antes (`checkIn`, `checkOut`, `onCheckInChange`, `onCheckOutChange`, todos `string` ISO) más el nuevo `bookedRanges` — convierte a `DateRange` de `react-day-picker` (`{ from, to }` con objetos `Date`) solo internamente.
-  - **[components/SpaBookingForm.tsx](components/SpaBookingForm.tsx)** y **[components/FoodBookingForm.tsx](components/FoodBookingForm.tsx)**: `mode="single"`, reemplazando la fila de botones tipo "pill" que existía antes sobre la disponibilidad simulada. La disponibilidad se expresa con `disabled={(date) => !availableDays.includes(format(date, "yyyy-MM-dd"))}` — el calendario completo se muestra, pero solo los días de esa lista quedan clicables; el resto aparece deshabilitado (`!text-neutral-300`). En `SpaBookingForm`, `availableDays` se deriva de las filas reales de `spa_availability` que recibe por props (ya filtradas en el servidor: sin bloques ocupados ni días pasados), agrupadas por fecha; los horarios del paso 3 salen del mismo arreglo, filtrando por el día elegido — es decir, **cada día tiene sus propios horarios**, a diferencia del mock anterior, que tenía una sola lista de horas por masajista igual para todos sus días. En `FoodBookingForm` pasa lo mismo con `availableDates` (filas de `food_availability`). Ambos formularios muestran un mensaje ("no tiene días disponibles por ahora") en vez del calendario cuando la lista llega vacía; el calendario lleva `key={masseuse.id}` para remontarse (y así recalcular `defaultMonth`) cada vez que se elige otra masajista, ya que cada una tiene sus propias fechas disponibles — mismo patrón de remonte por `key` que ya usaba `Carousel.tsx` para las fotos. Debajo del calendario, ambos formularios muestran la fecha elegida formateada con `formatSimulatedDate` (la misma función que usa el resto de la app para estas fechas simuladas), no con `date-fns`.
-  - **Indicadores de disponibilidad (verde/rojo)**: `Calendar.tsx` exporta además `AVAILABILITY_MODIFIERS_CLASS_NAMES`, un objeto `{ available, disabled }` pensado para pasarse por instancia vía `modifiersClassNames` (no se aplica por defecto — `DateRangeSelector` y `FoodBookingForm` no lo usan y no cambian). La clave `available` es un modificador custom (se pasa también en `modifiers`, ej. `{ available: (date) => isDayAvailable(date) && format(date, "yyyy-MM-dd") !== day }`, excluyendo el día ya seleccionado para no competir visualmente con el estilo de `selected`) que pinta fondo `emerald-50`/texto `emerald-900` más un punto verde bajo el número vía pseudo-elemento `after:content-['']`. La clave `disabled` sobreescribe directamente `modifiersClassNames.disabled` (no crea un modificador custom paralelo) para repintar de rojo/tachado (`!text-red-300 !bg-red-50/50 line-through`) los mismos días que ya bloquea el `disabled` nativo, evitando que compitan dos clases por el mismo color en la misma celda. Hoy solo está integrado en **SpaBookingForm.tsx**, ya sobre la disponibilidad real de `spa_availability`; queda pendiente extenderlo a `FoodBookingForm.tsx` y a la disponibilidad de la casa cuando se pidan.
+| Contenido | Dónde se edita | Dónde se ve |
+| --- | --- | --- |
+| Fotos del carrusel | Fotos de la propiedad | Home |
+| Amenidades y sus categorías | Amenidades / Categorías de amenidades | Home |
+| Tarjetas de servicios adicionales | Información de servicios adicionales | Home |
+| Tarifa por noche y depósito | Configuración de la propiedad | `/reservar` y panel |
+| Tipos de tarifa y su recargo | Tipos de tarifa | `/reservar` y panel |
+| Masajistas | Masajistas | `/servicios/spa` |
+| Días y horarios de spa | Disponibilidad de spa | `/servicios/spa` |
+| Menús y precio por persona | Menús | `/servicios/comida` |
+| Días con servicio de cocina | Disponibilidad de comida | `/servicios/comida` |
+| Vinos y paquetes | Vinos / Paquetes de vinos | `/servicios/vinos` |
 
-## 5. Dónde editar el contenido del Home y otros catálogos (todo vive en Supabase)
+> ⚠️ **`seed_demo` no carga el contenido del Home** (fotos, amenidades ni tarjetas de servicios). Con la base recién sembrada esas secciones aparecen **vacías**; hay que cargarlas desde el admin de Django. No es un error del frontend.
 
-**`lib/mock-data.ts` ya no existe.** Todo el contenido de negocio del proyecto — incluyendo el contenido visual del Home (fotos, amenidades, tarjetas de servicios) — vive en tablas reales de Supabase. No hay ningún archivo de datos de prueba que editar; los cambios se hacen directamente en la base de datos.
+**Imágenes:** los archivos viven en `public/images/` y `public/icons/`. En la base solo se guarda la ruta (por ejemplo `/images/jardin_1.jpeg`). Para agregar una foto: copiar el archivo a `public/images/` y crear el registro con esa ruta.
 
-| Qué quieres cambiar | Tabla de Supabase | Cómo editarla hoy |
-|---|---|---|
-| Fotos del carrusel (cantidad, etiquetas, orden y `url` del archivo en `public/images/`) | `property_photos` | Supabase Studio o `supabase/seed.sql` + `supabase db reset` |
-| Amenidades de la casa (categorías y, dentro de cada una, sus amenidades con `icon_url` al ícono `.svg`) | `amenity_categories` / `amenities` | Supabase Studio o `supabase/seed.sql` + `supabase db reset` |
-| Servicios adicionales (Comida, SPA, Vinos) en el Home, incluyendo la `image_url` de cada uno | `additional_services_info` | Supabase Studio o `supabase/seed.sql` + `supabase db reset` |
-| Usuarios del panel admin | `profiles` | Botón "Crear usuario" en `/admin` (sección 6) |
-| Reservaciones | `reservations` | Botón "Crear reservación" en `/admin/reservations` (sección 6), o completando `/reservar` como huésped |
-| Masajistas, menús de comida, botellas de vino y el paquete de 4 | `spa_masseuses`/`food_menus`/`wines`/`wine_packages` | Supabase Studio o `supabase/seed.sql` + `supabase db reset` — todavía no hay un formulario "Crear..." para estos catálogos en el panel admin |
-| Tipos de tarifa y precio de la casa | `fare_types`/`property_settings` | Supabase Studio o `supabase/seed.sql` + `supabase db reset` |
-| Días y horarios disponibles de SPA y Comida | `spa_availability`/`food_availability` (ver sección 3.1) | Supabase Studio o `supabase/seed.sql` + `supabase db reset` — todavía no hay pantalla de administración para esto en `/admin` |
-| Precio de una sesión de spa (no hay columna de precio en `spa_masseuses`, es el único valor que sigue siendo una constante fija en el código, no dato de Supabase) | — | Constante local en [components/SpaBookingForm.tsx](components/SpaBookingForm.tsx) (`SPA_SESSION_PRICE`) |
+---
 
-Supabase Studio corre en `http://127.0.0.1:54323` con `npx supabase start` activo (sección 2). Editar `supabase/seed.sql` y correr `npx supabase db reset` es la forma reproducible de cambiar los datos de desarrollo (persiste entre resets); editar directo en Studio es más rápido para una prueba puntual, pero se pierde en el siguiente `db reset`.
+## 6. Cómo funcionan las sesiones y los permisos
 
-**Estructura de amenidades**: `amenity_categories` (una fila por categoría, con `name` — el subtítulo visible, ej. "Cocina y comedor" — y `sort_order`) y `amenities` (una fila por amenidad, con `category_id`, `name`, `icon_url` y `sort_order`). Para agregar una amenidad nueva: primero colocar su ícono en `public/icons/amenities/<categoría>/`, luego insertar la fila en `amenities` referenciando ese `icon_url` — si dos amenidades no tienen un ícono dedicado (ej. "congelador" y "refrigerador"), es válido que compartan el mismo archivo `.svg`. `sort_order` en ambas tablas es lo que preserva el orden curado (categorías y amenidades dentro de cada una) — sin él, Postgres no garantiza ningún orden de despliegue.
+### Inicio de sesión
 
-**Íconos del sistema**: los botones "Carrito", "Perfil" y "Cerrar sesión" en [components/Navbar.tsx](components/Navbar.tsx), la flecha de [components/BackButton.tsx](components/BackButton.tsx) y los controles de [components/Carousel.tsx](components/Carousel.tsx) (flechas de navegación, zoom) usan componentes de **`lucide-react`** (`<ShoppingCart />`, `<User />`, `<LogOut />`, `<ArrowLeft />`, `<ChevronLeft />`/`<ChevronRight />`, `<ZoomIn />`/`<ZoomOut />`) en vez de archivos `.svg` — ver la regla correspondiente en [CLAUDE.md](CLAUDE.md). El texto de cada botón se sigue conservando accesible con `sr-only`/`aria-label` para lectores de pantalla. El logo (`/icons/system/logo.svg`) es la excepción: sigue siendo un `<img>` nativo apuntando a [public/icons/system/](public/icons/system/), porque es la marca de la casa, no un ícono genérico de interfaz que `lucide-react` pueda reemplazar. Los demás `.svg` de esa carpeta (`cart.svg`, `profile.svg`, `logout.svg`) quedan sin usar en el código, pero no se borraron del repo.
+1. La persona envía correo y contraseña en `/login`.
+2. El frontend se los pasa al backend, que responde con un **token JWT**.
+3. El token se guarda en **cookies de tipo httpOnly**: el JavaScript de la página no puede leerlas, solo el servidor. Por eso el token no se puede robar con un script inyectado.
+4. En cada petición al backend, el servidor de Next.js adjunta el token en el encabezado `Authorization: Bearer <token>`.
 
-**Íconos de amenidades** ([public/icons/amenities/](public/icons/amenities/)): a diferencia de los íconos de sistema de arriba, estos **siguen usando el formato estático `.svg` + `<img>` nativo** en [components/AmenitiesList.tsx](components/AmenitiesList.tsx) — es una decisión intencional (ver CLAUDE.md), no un descuido: son ilustraciones curadas y propias de la casa (cocina, alberca, etc.), no íconos genéricos de interfaz, y no tienen equivalente razonable en `lucide-react`.
+El token caduca (60 minutos por defecto). Cuando eso pasa, [middleware.ts](middleware.ts) lo renueva solo, usando el token de refresco, sin que la persona note nada.
 
-**Formateadores de presentación**: [lib/format.ts](lib/format.ts) aloja las dos funciones con las que la UI muestra fechas/horas — `formatSimulatedDate(isoDate)` convierte `"2026-09-04"` en `"04 sept."`, y `formatTimeSlot(time)` convierte el `"14:00:00"` que devuelve Postgres en `"2:00 PM"`. Las horas viajan siempre en 24h (así salen de `spa_availability`, así se guardan en el carrito y así llegan a `spa_bookings`); la conversión a 12h ocurre únicamente al pintarlas en pantalla.
+### Rutas protegidas
 
-## 6. Autenticación real (Supabase Auth + middleware) y panel de administración
+[middleware.ts](middleware.ts) revisa la sesión **antes** de que la página se dibuje:
 
-El prototipo distingue tres roles a nivel de base de datos — `admin`, `holder` y `guest` (ENUM `role_type`) —, pero en la UI solo se usan `admin` y `guest` (`role: "holder"` existe en el esquema para uso futuro, sin pantalla propia todavía). **La autenticación ya es real**: Supabase Auth con cookies, verificada del lado del servidor. Ya no hay `localStorage` de sesión ni verificación de contraseña simulada.
+| Ruta | Requisito |
+| --- | --- |
+| `/` (Home) | Sesión activa |
+| `/reservar`, `/perfil`, `/carrito`, `/servicios/*` | Sesión activa |
+| `/admin` y `/admin/*` | Sesión activa **y** rol de administrador |
+| `/login`, `/register` | Abiertas — son la puerta de entrada |
 
-**Piezas del sistema:**
+Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin rol de administrador, `/admin` redirige al Home.
 
-- **[middleware.ts](middleware.ts)** (raíz del proyecto): corre en el servidor antes de que cualquier página renderice. Refresca la sesión de Supabase en cada navegación y decide si redirigir:
-  - Sin sesión, entrar a `/reservar`, `/perfil`, `/carrito` o cualquier `/servicios/*` → redirige a `/login`.
-  - **El Home (`/`) también requiere sesión activa** — sin sesión, redirige a `/login`, igual que el resto de rutas protegidas. Es una coincidencia **exacta** de `pathname === "/"` (`PROTECTED_EXACT_PATHS`), evaluada aparte de las rutas por prefijo — necesario porque `"/"` con la misma lógica de prefijo (`startsWith`) haría match de cualquier URL, incluyendo `/login`, y generaría un bucle infinito de redirección.
-  - Entrar a `/admin` sin sesión → redirige a `/login`. Con sesión pero `role !== "admin"` (huésped, o cualquier caso donde no se pudo leer el perfil) → redirige a `/` (esto no genera bucle: como ya hay sesión, `/` se resuelve normalmente en vez de rebotar a `/login`).
-  - `/login` y `/register` no están protegidas — deben seguir siendo accesibles sin sesión para no quedar sin forma de entrar a la app.
-  - La lógica real vive en `lib/supabase/middleware.ts` (`updateSession`); `middleware.ts` en la raíz solo la invoca. Nota técnica: Next.js 16 renombró esta convención de archivo a `proxy.ts`, pero `middleware.ts` sigue funcionando (aparece un warning de deprecación al correr `npm run dev`, nada más) — ver el detalle en `CLAUDE.md`.
-- **[lib/AuthContext.tsx](lib/AuthContext.tsx)**: `AuthProvider` envuelve toda la app en [app/layout.tsx](app/layout.tsx). El hook `useAuth()` expone `{ user, profile, isLoading, login(email, password), logout() }` — `user` es la sesión de Supabase Auth, `profile` es la fila completa de la tabla `profiles` (nombre, apellidos, `role`, `status`, etc.) para ese usuario. Ya no hay `localStorage` — la sesión vive en cookies (manejadas por `@supabase/ssr`) y se sincroniza automáticamente ante login/logout/expiración de token.
+### Roles
 
-**Validación del formulario de login** ([app/login/page.tsx](app/login/page.tsx)):
+| Rol | Qué puede hacer |
+| --- | --- |
+| **Administrador** (`admin`) | Todo: gestionar usuarios y reservaciones |
+| **Propietario** (`holder`) | Ve la experiencia de huésped; en la API puede consultar todos los registros, pero no modificarlos |
+| **Huésped** (`guest`) | Reserva y consulta lo suyo |
 
-- El campo de correo sigue validándose contra un formato básico (`nombre@dominio.tld`) antes de enviar el formulario, igual que antes.
-- El campo de contraseña sigue validando que no esté vacío, **pero ahora la contraseña sí se verifica de verdad** contra Supabase Auth (`signInWithPassword`).
-- Si las credenciales son incorrectas, el mensaje de error se muestra en el mismo lugar de siempre (bajo el campo de contraseña, mismo estilo rojo), pero ahora viene de traducir el error real de Supabase (`AuthApiError`) a español — ej. "Invalid login credentials" se muestra como "Correo o contraseña incorrectos."
-- El formulario sigue usando `noValidate` para mostrar siempre los mensajes de error propios en vez de los del navegador.
+Quien se registra por su cuenta en `/register` siempre queda como **huésped**. Crear administradores o propietarios solo se puede desde el panel.
 
-**Cómo probarlo (usuarios de prueba sembrados por `supabase/seed.sql`, ver sección 3):**
+> Los permisos los decide **el backend** en cada petición. Lo que el frontend hace —ocultar botones, deshabilitar campos— es comodidad visual, no seguridad.
 
-1. Con Supabase local corriendo (`npx supabase start`) y `npm run dev` activo, ir a [/login](app/login/page.tsx).
-2. Escribir un correo con formato inválido (ej. `rafael@`) y dar clic en "Ingresar" → debe aparecer un mensaje de error en rojo bajo el campo, sin llegar a llamar a Supabase.
-3. Iniciar sesión con `admin@test.com` / `changeme123` → redirige a `/admin` (rol `admin` real, leído de `profiles`).
-4. Iniciar sesión con `carlos.ruiz@example.com` / `changeme123` (rol `guest`) → redirige a `/` (home). Si desde ahí se navega manualmente a `/admin`, el middleware redirige de vuelta a `/`.
-5. Escribir una contraseña incorrecta para un correo que sí existe → mensaje "Correo o contraseña incorrectos." bajo el campo de contraseña, sin redirigir.
-6. Cerrar sesión desde el botón de "Cerrar sesión" (Navbar o `/perfil`) y confirmar que `/reservar`, `/perfil`, `/carrito` o `/servicios/spa` redirigen de nuevo a `/login`.
+---
 
-**Navbar dinámico** ([components/Navbar.tsx](components/Navbar.tsx)): sigue leyendo `useAuth()` para decidir qué mostrar — si hay sesión activa, muestra los botones de "Perfil" y "Cerrar sesión" (ahora `logout()` es `async`, así que el handler hace `await logout()` antes de redirigir); si no hay sesión, muestra "Iniciar sesión". El resto del comportamiento (ocultar "Carrito" dentro de `/admin`, badge de `totalItems`) no cambió.
+## 7. Los flujos principales, paso a paso
 
-**Pantalla de registro** ([app/register/page.tsx](app/register/page.tsx)): **ya es un flujo real** — divide el campo único de nombre en `first_name`/`apellido_paterno`/`apellido_materno` (opcional este último, igual que la columna nullable en `profiles`) y agrega los campos `password`/`confirmPassword` que no existían en la versión mock (validados en cliente: obligatorios, mínimo 8 caracteres, deben coincidir). Al enviarlo, llama a `supabase.auth.signUp({ email, password })` con el cliente de Client Component ([lib/supabase/client.ts](lib/supabase/client.ts)) y, si devuelve `user`, inserta directamente la fila en `profiles` (`role: "guest"`, `status: "activo"`) — mismo cliente de sesión, sin pasar por la Service Role Key. Si el `insert` falla, llama a la Server Action `compensateFailedRegistration` ([app/register/actions.ts](app/register/actions.ts)) para revertir la cuenta de Auth recién creada y no dejarla huérfana; esa action solo borra la cuenta si la sesión activa (leída por cookies del lado del servidor) pertenece exactamente al mismo `userId` que se pide borrar — si `signUp` no dejó sesión (ej. confirmación de correo habilitada en el proyecto), no hay forma segura de verificar la propiedad de la cuenta y en su lugar se le pide a la persona contactar a soporte, en vez de exponer un endpoint que cualquiera podría usar para borrar cuentas ajenas conociendo su uuid. Los errores de Supabase (correo duplicado, contraseña débil, correo inválido) se traducen a español con `translateSignUpError`, mismo patrón que `translateAuthError` en `app/login/page.tsx`. Al terminar con éxito: si `signUp` ya dejó una sesión activa (confirmación de correo deshabilitada en el proyecto local), redirige directo a `/` con `router.refresh()`; si no, muestra el mensaje de éxito y redirige a `/login` después de 2 segundos, igual que el comportamiento mock anterior.
+### Reservar la estadía (`/reservar`)
 
-**Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): mismo diseño visual de siempre (avatar con inicial, tarjeta con Nombre/Correo/Rol, botón "Cerrar sesión"), pero ahora los datos vienen de `profile` (Supabase) en vez de un `MockUser`. El nombre completo se arma concatenando `first_name` + `apellido_paterno` + `apellido_materno` (los tres campos separados de `profiles`, a diferencia del `nombre` único que tenía `MockUser`). Sigue teniendo su propia redirección inline a `/login` si no hay sesión, como respaldo del guard de `middleware.ts` (por ejemplo, si la sesión expira mientras la pestaña ya está abierta en `/perfil`).
+1. La página pide al backend las tarifas, la configuración de cobro y las fechas ya ocupadas.
+2. La persona elige fechas en el calendario (los rangos ocupados aparecen deshabilitados) y un tipo de tarifa.
+3. El resumen muestra: noches × tarifa + recargo + depósito.
+4. Al pulsar "Proceder al pago" se crea la reservación en el backend, que **recalcula el monto por su cuenta** y verifica que las fechas no choquen con otra reserva confirmada.
+5. Si todo sale bien, va a `/pago-exitoso`. Si las fechas ya estaban tomadas, aparece un aviso y no se crea nada.
 
-**Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)):
+### Agregar servicios y pagarlos (`/servicios/*` → `/carrito`)
 
-- **Sección "Usuarios invitados"** (**CRUD real completo, ya no mock** — Fase 1: leer/crear/editar, Fase 2: eliminar + creación directa con contraseña temporal; ver también `CLAUDE.md`): [components/UsersTable.tsx](components/UsersTable.tsx) recibe las filas reales de `profiles` (fetch hecho en `app/admin/page.tsx` con el cliente de servidor estándar, junto con el `id` del propio admin vía `supabase.auth.getUser()`) y ya no guarda ninguna copia local en `useState` — lo que se ve en pantalla es exactamente la prop que le llegó del servidor, y se refresca solo cuando una Server Action de [app/admin/actions.ts](app/admin/actions.ts) llama a `revalidatePath("/admin")`.
-  - Botón **"Crear usuario"** (arriba de la tabla; se llamaba "Invitar usuario" en la Fase 1 — el nombre cambió en la Fase 2, ver abajo) abre un modal para dar de alta un usuario: correo, nombre(s), apellido paterno, apellido materno (opcional) y rol. Al enviarlo llama a la Server Action `createUser`, que crea la cuenta directamente en Supabase Auth con `supabase.auth.admin.createUser({ email, password: "changeme123", email_confirm: true })` — **ya no se envía ningún correo de invitación**: la cuenta queda activa de inmediato con esa contraseña temporal fija, y el propio modal lo explica antes de que el admin la cree, para que sepa qué credenciales compartirle a la persona. Si la creación en Auth tiene éxito, inserta su fila en `profiles`.
-    - ⚠️ **Contraseña temporal compartida, solo para este prototipo** — ver el aviso completo en `CLAUDE.md` ("CRUD de usuarios"). Antes de un despliegue real hace falta reemplazar esto por cambio de contraseña obligatorio en el primer login, una contraseña aleatoria por usuario, o volver al flujo de invitación por correo de la Fase 1.
-  - Botón **"Editar"** de cada fila abre el mismo modal interactivo de siempre (fondo `bg-black/40 backdrop-blur-sm`, panel `bg-white rounded-2xl shadow-2xl`, animación `@keyframes modal-in` en [app/globals.css](app/globals.css), cierra con "Cancelar"/clic fuera/Escape), que **solo edita rol y estado** (ya no nombre/correo, porque la Server Action `updateUser` no soporta esos campos) — el correo se muestra de solo lectura como referencia. Llama a la Server Action `updateUser(userId, { role, status })`. **Si la fila editada es la del propio admin logueado**, los `<select>` de "Rol" y "Estado" (y el botón "Guardar cambios") vienen deshabilitados y se muestra un aviso ("No puedes modificar tu propio rol o estado.") — refuerzo de UX del guard real que ya rechaza ese mismo intento en la Server Action, aunque se invoque sin pasar por este modal.
-  - Botón **"Eliminar"** (nuevo en Fase 2, estilo rojo, junto a "Editar") abre un modal de confirmación distinto ("¿Seguro que quieres eliminar a...? Esta acción no se puede deshacer.") — solo llama a la Server Action `deleteUser(userId)` si el admin confirma dentro de ese modal, nunca desde la fila directamente. `deleteUser` borra el usuario en Supabase Auth; su fila en `profiles` se elimina sola por la relación `on delete cascade` hacia `auth.users`, no hace falta un segundo paso. **El botón "Eliminar" de la propia fila del admin está deshabilitado** (con un tooltip nativo explicando por qué) — un admin no puede eliminar su propia cuenta ni desde la UI ni, más importante, desde la Server Action misma (que rechaza el intento aunque alguien lo invoque sin pasar por este botón).
-  - Mientras cualquiera de las tres Server Actions está en vuelo, el botón correspondiente se deshabilita con `useTransition` (uno independiente por modal, ya no cambia su texto a "Guardando…"/"Creando…"/"Eliminando…" — esa señal ahora es un toast, ver abajo); si la action devuelve un error, se muestra con `toast.error(...)` (`sonner`, ver [CLAUDE.md](CLAUDE.md), "Stack tecnológico") en vez de un párrafo en rojo dentro del propio modal, y el modal permanece abierto igual que antes; si tiene éxito, el modal se cierra y aparece un `toast.success(...)`.
-  - El rol `holder` es seleccionable tanto al crear como al editar — sigue sin tener pantallas propias distintas en el resto de la app.
-- **Sección "Reservaciones"** (**CRUD real completo, ya no mock**): en `/admin` esta sección ya no muestra la tabla directamente — solo una tarjeta con el botón "Ver reservaciones", que enlaza a la ruta dedicada [app/admin/reservations/page.tsx](app/admin/reservations/page.tsx) (protegida por el mismo guard de `middleware.ts` que `/admin`, ya que comparte el prefijo `/admin`). Ahí, [components/ReservationsTable.tsx](components/ReservationsTable.tsx) recibe las filas reales de `reservations` — con el `guest` (de `profiles`), el `fare_type` (de `fare_types`) y las relaciones inversas `spa_bookings`/`food_bookings`/`wine_orders` (cada una solo con `id`, ver más abajo) ya incluidos vía JOIN en la propia consulta de [app/admin/reservations/actions.ts](app/admin/reservations/actions.ts) — más la lista de huéspedes, tarifas y la fila de `property_settings`, todo obtenido en paralelo por la página.
-  - Columna **"Servicios"** (entre "Tarifa" y "Monto"): muestra íconos compactos de `lucide-react` (`<Sparkles />` SPA, `<Utensils />` Comida, `<Wine />` Vinos, cada uno envuelto en un `<span title="...">` para el tooltip nativo) solo para los servicios cuyo arreglo (`spa_bookings`/`food_bookings`/`wine_orders`) tenga al menos un elemento; si el huésped no contrató ningún servicio adicional, muestra un guion en `text-neutral-400`. Es de solo lectura — no hay acción para editar o quitar un servicio desde esta columna.
-  - Botón **"Crear reservación"** (arriba de la tabla; deshabilitado con un tooltip si todavía no hay ningún huésped o tipo de tarifa dado de alta) abre un modal para dar de alta una reservación: huésped, check-in/check-out (`<input type="date">` nativo, sin restricción de fecha mínima — a diferencia del calendario de cara al huésped, esta es una herramienta de admin que puede necesitar registrar reservas históricas), tipo de tarifa, y estado/estado de pago (ambos con valor inicial "Pendiente"). El monto total se calcula solo con la misma fórmula que `components/BookingSummary.tsx` (noches × tarifa por noche + recargo de la tarifa elegida + depósito de garantía), pero el campo queda editable — si el admin lo toca a mano, deja de recalcularse aunque cambien las fechas o la tarifa después. Al enviarlo llama a la Server Action `createReservation`, que valida que `check_out` sea posterior a `check_in` y que las fechas no se crucen con otra reservación ya `confirmada` antes de insertar la fila.
-  - Botón **"Editar"** de cada fila abre un modal que **solo cambia dos campos, de forma independiente**: el estado de la reservación (`status`: Pendiente/Confirmada/Cancelada/Finalizada) y el estado del pago (`payment_status`: Pendiente/Parcial/Completado/Reembolsado) — huésped, fechas, tarifa y monto se muestran de solo lectura como contexto, sin campo para editarlos todavía. Llama a la Server Action `updateReservation(id, { status, payment_status })`, que también corre la misma validación de solapamiento de fechas si el `status` que va a quedar es "Confirmada" (aunque el payload no traiga fechas — es el camino real por el que una reservación pasa de pendiente a confirmada en esta UI).
-  - Botón **"Eliminar"** abre un modal de **doble confirmación en dos pasos**: el primero resume la reservación con un botón "Continuar"; el segundo es la advertencia final (explica que se conserva en el historial, junto con sus servicios de SPA/comida/vinos, pero deja de listarse) con el botón rojo "Sí, eliminar reserva" — el único que realmente llama a la Server Action `deleteReservation`. Es un **soft delete** (`deleted_at` se marca con la fecha/hora actual) en vez de un `DELETE` físico, para no destruir el historial de servicios adicionales asociados a esa reservación. Al eliminarla —y también al cambiar su estado a `cancelada` desde el modal de edición— sus **horarios de spa vuelven al inventario disponible**, sin borrar las sesiones contratadas (ver sección 3.1).
-  - Mientras cualquiera de las cuatro Server Actions está en vuelo, el botón correspondiente se deshabilita con `useTransition` (uno independiente por modal, sin cambio de texto), igual que en "Usuarios invitados"; si la action devuelve un error, se muestra con `toast.error(...)` en vez de un párrafo en rojo dentro del propio modal, y si tiene éxito el modal se cierra con un `toast.success(...)`.
-  - "Casa Brava" aparece como subtítulo fijo de la página (no hay tabla `properties` en el esquema — todo el sistema es una sola casa), no como columna repetida en cada fila.
-- **Ahora sí tiene guard de ruta real**: `middleware.ts` exige sesión con `role === "admin"` en `profiles` antes de dejar pasar a `/admin` y a `/admin/reservations` (ver arriba) — a diferencia del prototipo anterior, ninguna de las dos es accesible por URL directa sin cumplir ambas condiciones. Las Server Actions de `app/admin/actions.ts` y `app/admin/reservations/actions.ts` repiten esa misma verificación de rol por su cuenta, vía el guard compartido `requireAdmin()` de [lib/supabase/require-admin.ts](lib/supabase/require-admin.ts) (no confían en que solo se llamen desde una página ya protegida), porque una Server Action es un endpoint invocable directamente, no solo un handler de UI.
+1. En cada página de servicio se elige lo que se quiere y se pulsa "Agregar al carrito". Eso **solo guarda en el navegador**; todavía no se reserva nada.
+2. El carrito es propio de cada usuario: dos personas en la misma computadora no se mezclan.
+3. En `/carrito`, "Pagar servicios" envía todo al backend y lo asocia a la reservación activa más reciente de esa persona.
+4. **Hace falta tener una estadía reservada primero.** Si no la hay, aparece el aviso "Primero debes reservar tu estadía…" con un atajo a `/reservar`.
+5. Si algo falla a medio camino (por ejemplo, otro huésped tomó ese horario de spa un segundo antes), lo que ya se había creado en ese intento se deshace y el carrito se conserva para poder corregirlo.
 
-## 7. Reservar la estadía y el carrito de servicios adicionales (ya escriben en Supabase)
+### Panel de usuarios (`/admin`)
 
-El huésped reserva su estadía en `/reservar` y agrega servicios adicionales (SPA/Masajes, Comida, Paquete de Vinos) a un carrito en `/carrito`. Ambos flujos ya escriben en Supabase de forma real, siguiendo una regla simple: **primero se reserva la estadía, después se pueden agregar servicios** — un servicio (spa/comida/vinos) siempre queda colgado de una reservación ya existente, nunca "suelto".
+- Lista las cuentas con su rol y estado.
+- **Crear usuario**: la cuenta queda activa de inmediato con la contraseña temporal `changeme123`, que el administrador comparte con la persona.
+- **Editar**: cambia rol y estado.
+- **Eliminar**: pide confirmación.
+- Un administrador **no puede** cambiar su propio rol ni borrarse a sí mismo: sería la forma más rápida de dejar el panel sin acceso.
 
-- **`/reservar`** ([app/reservar/page.tsx](app/reservar/page.tsx) + [components/ReservarForm.tsx](components/ReservarForm.tsx)): al dar clic en "Proceder al pago", llama a la Server Action `checkoutStay` ([app/actions/checkout.ts](app/actions/checkout.ts)), que crea la fila en `reservations` (el monto total se calcula en el servidor, no se confía en nada que mande el navegador) y la deja en estado `pendiente`/`pendiente` (reserva y pago, respectivamente — este último simula "se creó la intención de pago", listo para cuando se conecte Stripe).
-- **El carrito de servicios** sigue viviendo en `localStorage` mientras se arma (no hay tabla para "carrito" en Supabase) — eso lo maneja [lib/CartContext.tsx](lib/CartContext.tsx):
-  - `CartProvider` envuelve la app en [app/layout.tsx](app/layout.tsx) (anidado dentro de `AuthProvider`) y expone el carrito a través de un React Context.
-  - **El carrito es por huésped**: la clave de `localStorage` incluye el `id` del usuario logueado (`casabrava_cart_<id>`), así que cada persona que inicia sesión en el mismo navegador ve solo su propio carrito, no el de quien usó el navegador antes. Si se agregan servicios sin haber iniciado sesión... en la práctica no puede pasar, porque `/servicios/*` ya exige sesión activa (middleware.ts, sección 6) antes de llegar a cualquier formulario.
-  - El hook `useCart()` da acceso a `items`, `isLoading`, `addToCart(item)`, `removeFromCart(id)`, `clearCart()`, `totalPrice` y `totalItems` desde cualquier componente cliente — misma forma que antes.
-  - Cada `CartItem` es una unión discriminada por `serviceType` (`"spa" | "comida" | "vinos"`), con los detalles específicos tipados como `SpaReservation`, `FoodReservation` o `WineOrder` (todos en [lib/cart-types.ts](lib/cart-types.ts)) — con los `id` del catálogo (masajista, menú, botella) como uuid real de Supabase.
-- **"Pagar servicios"** ([components/CartView.tsx](components/CartView.tsx)) llama a la Server Action `checkoutCartServices` ([app/actions/checkout.ts](app/actions/checkout.ts)), que busca la reservación activa más reciente del huésped y le adjunta cada item del carrito como una fila real en `spa_bookings`/`food_bookings`/`wine_orders`. Antes de insertar valida la disponibilidad: los días de comida deben seguir habilitados en `food_availability`, y cada sesión de spa pasa por `book_spa_slot()` (ver sección 3.1), que rechaza el horario si otro huésped ya lo tomó — ese es el punto donde se previene el doble-booking, y el mensaje de error llega tal cual al toast. Si el proceso falla a la mitad (por ejemplo, el spa se reservó pero la comida no), deshace todo lo que alcanzó a insertar en esa misma llamada, para no dejar servicios cobrados a medias: las sesiones de spa se revierten con `release_spa_booking()` (que además libera el horario) y las de comida/vinos con un borrado directo, respaldado por las políticas de `DELETE` acotadas al dueño descritas en la sección 3.1. Al hacer clic se abre un `toast.loading("Procesando pago…")` (`sonner`, ver [CLAUDE.md](CLAUDE.md), "Stack tecnológico") que el propio handler convierte en `toast.success(...)` o `toast.error(...)` (mismo `id` de toast, así que se actualiza en el lugar en vez de apilar uno nuevo) según la respuesta. Si el huésped todavía no tiene ninguna reservación, el toast de error trae un botón de acción "Reservar estadía" que navega a `/reservar`, en vez de un link en línea.
+### Panel de reservaciones (`/admin/reservations`)
 
-**Cómo probar el flujo completo** (con Supabase local corriendo — sección 2):
+- Tabla con huésped, fechas, tarifa, servicios contratados (íconos), monto y los dos estados.
+- **Dos estados independientes**: el de la reserva (`Pendiente`, `Confirmada`, `Cancelada`, `Finalizada`) y el del cobro (`Pendiente`, `Parcial`, `Completado`, `Reembolsado`). Se cambian por separado, para poder registrar un anticipo sobre una reserva todavía pendiente.
+- **Editar** abre el desglose de lo contratado (cada masaje, comida y vino con su importe) más estadía, subtotal de servicios y gran total.
+- **Crear** sugiere el monto a partir de fechas y tarifa, pero lo deja editable por si hay un descuento.
+- **Eliminar** pide doble confirmación. No borra de verdad: marca la reserva como eliminada y libera los horarios de spa, conservando el historial de lo contratado.
+- Confirmar una reserva vuelve a verificar que no choque con otra; si choca, se avisa y no se guarda.
 
-1. Iniciar sesión como huésped (ej. `maria.gomez@example.com` / `changeme123`).
-2. Ir a [/reservar](app/reservar/page.tsx), elegir fechas y tipo de tarifa, y dar clic en "Proceder al pago" — el botón muestra "Procesando…" mientras se crea la reservación; al terminar redirige a `/pago-exitoso`.
-3. Desde el Home (`/`), dar clic en "Reservar" dentro de cualquier tarjeta de la sección "Servicios adicionales" → navega a `/servicios/spa`, `/servicios/comida` o `/servicios/vinos`.
-4. **SPA**: elegir una masajista (nombres reales de Supabase) → aparece el selector de día (solo los días con bloques libres de esa masajista, en verde) → al elegir día aparece el selector de hora con los bloques libres **de ese día**. Completar los tres pasos y dar clic en "Agregar al carrito".
-5. **Comida**: elegir día (solo los habilitados en `food_availability`), tiempo de comida (Desayuno/Almuerzo/Cena) y tipo de menú (menús reales de Supabase, precio por persona); ajustar el número de personas con el contador y dar clic en "Agregar al carrito".
-6. **Vinos**: sumar botellas individuales (catálogo real) con los contadores `+`/`−` y/o el contador del "Paquete de 4 vinos"; el total del pedido se recalcula en vivo. Dar clic en "Agregar al carrito".
-7. En cualquiera de los tres flujos, tras agregar aparece un `toast.success(...)` (`sonner`) con un botón de acción "Ver carrito" que navega a `/carrito` — el formulario permanece visible para seguir agregando servicios sin perder el progreso (el antiguo banner en línea, `components/AddedToCartBanner.tsx`, se eliminó del repo por quedar sin uso). Agregar al menos un servicio de cada tipo no escribe nada en Supabase todavía — solo actualiza el carrito local.
-8. El ícono de carrito en el Navbar ([components/Navbar.tsx](components/Navbar.tsx)) muestra un badge con la cantidad total de items (`useCart().totalItems`) y enlaza a `/carrito`.
-9. En [/carrito](app/carrito/page.tsx): revisar el listado (cada fila formatea sus propios detalles según `serviceType`, ver [components/CartItemRow.tsx](components/CartItemRow.tsx)), eliminar algún item con "Eliminar" y confirmar que el total se recalcula.
-10. Dar clic en "Pagar servicios" — aparece un `toast.loading("Procesando pago…")` mientras `checkoutCartServices` inserta cada item en Supabase; al terminar el mismo toast se convierte en `toast.success(...)`, se vacía el carrito (`clearCart()`) y redirige a `/pago-exitoso`. Puede verificarse en Supabase Studio (`spa_bookings`/`food_bookings`/`wine_orders`, todas con `reservation_id` apuntando a la reservación del paso 2) o revisando `/admin/reservations` como admin.
-11. Para probar el error de "reserva primero": con un huésped que **no** tenga ninguna reservación activa, agregar un servicio al carrito y dar clic en "Pagar servicios" → el toast debe convertirse en `toast.error("Primero debes reservar tu estadía antes de agregar servicios.")` con un botón de acción "Reservar estadía", sin insertar nada.
-12. **Probar el control de colisiones del spa**: tras pagar una sesión de spa en el paso 10, volver a `/servicios/spa` y elegir la misma masajista y el mismo día — ese horario ya no aparece entre los disponibles (`is_booked` quedó en `true`). Para ver el rechazo del lado del servidor: iniciar sesión con otro huésped (`carlos.ruiz@example.com`), agregar al carrito ese mismo bloque **antes** de que el primero pague, y pagar después — el toast debe mostrar "El horario seleccionado ya fue ocupado por otra reservación." sin insertar nada.
-13. Recargar el navegador en cualquier punto del flujo del carrito: los items agregados (todavía no pagados) persisten porque viven en `localStorage`.
+---
 
-## 8. Qué falta conectar al backend (próximos sprints)
+## 8. Cosas que conviene saber al tocar el código
 
-- ~~**Login**~~ / ~~**Sesión mockeada**~~ / ~~**Protección de rutas**~~ — **ya resuelto**: [app/login/page.tsx](app/login/page.tsx) usa Supabase Auth real (`signInWithPassword`), la sesión vive en cookies (no `localStorage`, ver [lib/AuthContext.tsx](lib/AuthContext.tsx)), y [middleware.ts](middleware.ts) protege `/reservar`, `/perfil`, `/carrito`, `/servicios/*` (por sesión) y `/admin` (por sesión + `role === "admin"`) del lado del servidor. Ver el detalle completo en la sección 6.
-- ~~**Persistencia de la reservación**~~ / ~~**Carrito de servicios**~~ — **ya resuelto**: `/reservar` (`checkoutStay`) y `/carrito` (`checkoutCartServices`), ambos en [app/actions/checkout.ts](app/actions/checkout.ts), escriben filas reales en `reservations`/`spa_bookings`/`food_bookings`/`wine_orders` — ver el detalle completo en la sección 7. El carrito de servicios en sí sigue en `localStorage` (namespaced por huésped) mientras se arma, pero eso es intencional: no hay tabla `cart_items`, y la escritura real ocurre al momento del checkout.
-- ~~**Registro**~~ — **ya resuelto**: [app/register/page.tsx](app/register/page.tsx) usa `supabase.auth.signUp()` real y crea la fila correspondiente en `profiles` (`role: "guest"`, `status: "activo"`), con compensación automática (`compensateFailedRegistration` en [app/register/actions.ts](app/register/actions.ts)) si el insert falla. Ver el detalle completo en la sección 6.
-- ~~**Políticas RLS pendientes**~~ — **ya resuelto**: `supabase/migrations/20260903184500_enable_rls_policies.sql` habilita Row Level Security en las 12 tablas que existían entonces (y `20260903190848_add_availability_tables.sql` en las dos de disponibilidad, para un total de 14) y define políticas por rol (`admin` acceso total, `holder` solo lectura global, `guest` limitado a sus propias filas) — ver el detalle completo en la sección 3.1. Esto corre **además** de la protección que ya hacía cada Server Action (`requireAdmin()`/`requireAuth()`), no en su lugar: la app sigue pasando siempre por ahí, pero ahora un cliente con la `anon`/`authenticated` key ya no puede saltárselas.
-- ~~**Disponibilidad de fechas**~~ — **ya resuelto**: [app/reservar/page.tsx](app/reservar/page.tsx) hace un `select("check_in, check_out")` sobre `reservations` (`status = 'confirmada'`, `deleted_at is null`) y pasa ese arreglo como `bookedRanges` a `ReservarForm` → `DateRangeSelector`, que deshabilita esos rangos directamente en el `<DayPicker>` (además del chequeo de solapamiento del lado del servidor en `checkoutStay`, que sigue siendo la garantía real). Ver el detalle del intervalo semi-abierto en [CLAUDE.md](CLAUDE.md), sección "Checkout de huésped". Sigue sin existir el concepto de "bloques bloqueados" sin huésped (ej. mantenimiento) — la arquitectura ya deja la puerta abierta para eso sin cambiar el chequeo de solapamiento (ver CLAUDE.md, "CRUD de reservaciones").
-- ~~**Liberación de inventario de SPA**~~ / ~~**Compensación silenciosa del carrito**~~ — **ya resuelto** (`supabase/migrations/20260903192511_fix_checkout_compensation.sql`): cancelar o eliminar una reservación devuelve sus horarios de spa al inventario vía `release_spa_slots_for_reservation()`, y la compensación del carrito ante un fallo parcial ya borra de verdad las filas de `food_bookings`/`wine_orders` (antes el `delete` no tenía política de RLS que lo respaldara y no borraba nada, sin avisar). Ver el detalle en la sección 3.1.
-- ~~**Double-booking al reactivar una reservación cancelada**~~ — **ya resuelto** (`supabase/migrations/20260903193417_reacquire_spa_slots.sql`): reactivar una reservación (`cancelada`/`finalizada` → `pendiente`/`confirmada`) ahora vuelve a tomar sus bloques de spa vía `reacquire_spa_slots_for_reservation()`, y aborta la reactivación por completo (sin tocar `status`) si alguno ya fue ocupado por otro huésped mientras tanto. Ver el detalle en la sección 3.1.
-- ~~**Contenido del Home mockeado**~~ — **ya resuelto** (`supabase/migrations/20260903200433_add_frontend_content_tables.sql`): las fotos del carrusel, las amenidades por categoría y las 3 tarjetas de servicios adicionales se leen en vivo desde `property_photos`/`amenity_categories`+`amenities`/`additional_services_info`. `lib/mock-data.ts` se eliminó por completo — ver el detalle en la sección 5.
-- **Pago real**: tanto `checkoutStay` como `checkoutCartServices` dejan la reservación en `payment_status: "pendiente"` (simulando "se creó la intención de pago") y redirigen a una pantalla de éxito estática sin cobrar nada de verdad. Falta integrar un proveedor de pagos real (planeado: Stripe) y el webhook que mueva `payment_status` a `"completado"` tras la confirmación real, antes de mostrar `/pago-exitoso`.
-- **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx) y [app/admin/reservations/page.tsx](app/admin/reservations/page.tsx)): CRUD real completo para usuarios y reservaciones (ver sección 6), pero **no hay todavía un formulario para editar el catálogo** (masajistas, menús, vinos, tipos de tarifa, precio de la casa) ni el contenido del Home (fotos, amenidades, tarjetas de servicios) — para todo eso hoy hace falta Supabase Studio o editar `supabase/seed.sql` (ver sección 5).
-  - `deleteUser`/`updateUser` bloquean que un admin se elimine o edite su propio rol/estado (guard en la Server Action + UI deshabilitada) — ver `CLAUDE.md`, "CRUD de usuarios".
-  - La contraseña temporal fija de `createUser` (`"changeme123"`, ver sección 6 y CLAUDE.md) es aceptable solo mientras el proyecto siga siendo un prototipo de acceso invitado — antes de producción hace falta cambiarla por un flujo de cambio de contraseña obligatorio, contraseñas aleatorias por usuario, o volver al flujo de invitación por correo.
-  - El chequeo de solapamiento de fechas (`validateDates`/`hasOverlappingConfirmedReservation` en [lib/supabase/reservation-rules.ts](lib/supabase/reservation-rules.ts), reutilizado por el CRUD admin y por `checkoutStay`) solo compara contra reservaciones ya `confirmada` — no existe todavía el concepto de "bloque de mantenimiento" (fechas bloqueadas sin huésped real, ej. para limpieza o reparaciones). La arquitectura ya deja la puerta abierta para eso sin cambiar el chequeo de solapamiento en sí (ver CLAUDE.md, "CRUD de reservaciones", para el detalle de cómo).
-- ~~**Disponibilidad de SPA/Comida**~~ — **ya resuelto**: los días y horarios viven en las tablas `spa_availability`/`food_availability` (migración `20260903190848_add_availability_tables.sql`), los formularios los leen en vivo, y el checkout de spa impide que dos huéspedes tomen el mismo bloque mediante la función transaccional `book_spa_slot()`. Ver el detalle en la sección 3.1. Lo que **sigue pendiente** de esta pieza:
-  - No hay pantalla en `/admin` para dar de alta o quitar días y horarios — hoy se hace desde `supabase/seed.sql` o Supabase Studio (sección 5).
+**Los precios llegan como texto, no como número.** El backend manda `"4500.00"` en vez de `4500` para no perder precisión con los decimales. Antes de sumar o multiplicar hay que convertirlos con `toNumber()` de [lib/format.ts](lib/format.ts); para mostrarlos, `formatMoney()`. La conversión se hace en la página, para que los componentes visuales sigan recibiendo números.
 
-Para más detalle técnico sobre el stack y las convenciones de código, ver [CLAUDE.md](CLAUDE.md).
+**Las listas del backend vienen de 50 en 50.** Para traer una colección completa hay que usar `serverFetchAll` (no `serverFetch`), que va siguiendo las páginas. Si se lee solo la primera, faltan datos **sin ningún error visible** — por ejemplo, desaparecerían los días de spa más lejanos.
+
+**Los componentes del navegador no pueden llamar al backend.** El token está en una cookie que el navegador no puede leer. Todo acceso a datos ocurre en un Server Component (la página) o en una Server Action (`app/actions/`, `app/admin/actions.ts`).
+
+**Las reglas de negocio son del backend.** Fechas, choques de reservas, montos e inventario de spa se validan allá, dentro de una transacción. Lo que el frontend hace —deshabilitar fechas en el calendario, ocultar horarios ocupados— sirve para no hacer perder el tiempo, pero no es la protección real.
+
+**Cuidado con las fechas.** `new Date("2026-09-20")` se interpreta en horario universal y puede correrse un día. Usar `parseISO` de `date-fns`, o agregar la hora: `new Date("2026-09-20T00:00:00")`.
+
+---
+
+## 9. Qué falta
+
+| Pendiente | Estado |
+| --- | --- |
+| **Cobro real con Stripe** | El punto de enganche ya existe en el backend (`pagos.services.registrar_pago`). Falta conectar el proveedor y su webhook. Hoy el pago es simulado. |
+| **Vista de pagos en el panel** | El backend ya guarda cada movimiento de cobro por separado (anticipos, saldos, reembolsos), pero el panel todavía solo muestra el estado general de la reserva. |
+| **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. |
+| **Semilla del contenido del Home** | `seed_demo` no crea fotos, amenidades ni tarjetas de servicios: hay que cargarlas desde el admin de Django. |

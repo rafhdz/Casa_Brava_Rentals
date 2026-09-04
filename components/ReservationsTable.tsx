@@ -4,7 +4,8 @@ import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { Sparkles, Utensils, Wine } from "lucide-react";
 import { toast } from "sonner";
-import type { Enums } from "@/lib/database.types";
+import { formatMoney, toNumber } from "@/lib/format";
+import type { PaymentStatus, Reservation, ReservationStatus } from "@/lib/api/types";
 import {
   createReservation,
   deleteReservation,
@@ -13,19 +14,7 @@ import {
   type FareTypeOption,
   type GuestOption,
   type PropertySettingsSummary,
-  type ReservationWithRelations,
 } from "@/app/admin/reservations/actions";
-
-type ReservationStatus = Enums<"reservation_status">;
-type PaymentStatus = Enums<"payment_status_type">;
-
-function formatFullName(person: {
-  first_name: string;
-  apellido_paterno: string;
-  apellido_materno: string | null;
-}): string {
-  return [person.first_name, person.apellido_paterno, person.apellido_materno].filter(Boolean).join(" ");
-}
 
 // new Date(`${value}T00:00:00`) en vez de new Date(value): mismo truco que
 // formatSimulatedDate en lib/format.ts para evitar el bug de zona horaria
@@ -162,31 +151,32 @@ type ServiceLine = {
 };
 
 // Desglose de costos del modal de edición: aplana spa_bookings/food_bookings/
-// wine_orders (con sus items) a una lista plana de líneas de recibo. Todos
-// los montos (`price_per_hour`, `total_price`, `unit_price`) son columnas
-// reales insertadas en el checkout del huésped (ver app/actions/checkout.ts)
-// — snapshots del precio al momento de la compra, no se recalculan aquí a
-// partir del precio actual del catálogo.
-function buildServiceLines(reservation: ReservationWithRelations): ServiceLine[] {
+// wine_orders (con sus items) a una lista plana de líneas de recibo.
+//
+// Todos los montos (`price_per_hour`, `total_price`, `unit_price`) son campos
+// reales de cada booking — el snapshot del precio al momento de contratar, no
+// el del catálogo vigente, que pudo cambiar desde entonces. Viajan como string
+// decimal desde DRF, de ahí el `toNumber` (ver lib/api/types.ts).
+function buildServiceLines(reservation: Reservation): ServiceLine[] {
   const spaLines: ServiceLine[] = reservation.spa_bookings.map((booking) => ({
     key: `spa-${booking.id}`,
-    label: `Masaje — ${booking.masseuse?.name ?? "Masajista"} (${formatDate(booking.date)})`,
-    amount: booking.price_per_hour,
+    label: `Masaje — ${booking.masseuse_name} (${formatDate(booking.date)})`,
+    amount: toNumber(booking.price_per_hour),
   }));
 
   const foodLines: ServiceLine[] = reservation.food_bookings.map((booking) => ({
     key: `food-${booking.id}`,
-    label: `${booking.menu?.name ?? "Menú"} — ${booking.meal_type} (x${booking.guests_count})`,
-    amount: booking.total_price,
+    label: `${booking.menu_name} — ${booking.meal_type} (x${booking.guests_count})`,
+    amount: toNumber(booking.total_price),
   }));
 
   const wineLines: ServiceLine[] = reservation.wine_orders.flatMap((order) =>
     order.items.map((item) => ({
       key: `wine-${item.id}`,
       label: item.wine
-        ? `Vino ${item.wine.name} (x${item.quantity})`
-        : `Paquete ${item.package?.name ?? "de vinos"} (x${item.quantity})`,
-      amount: item.unit_price * item.quantity,
+        ? `Vino ${item.producto ?? "sin nombre"} (x${item.quantity})`
+        : `Paquete ${item.producto ?? "de vinos"} (x${item.quantity})`,
+      amount: toNumber(item.unit_price) * item.quantity,
     }))
   );
 
@@ -196,10 +186,13 @@ function buildServiceLines(reservation: ReservationWithRelations): ServiceLine[]
 // Sección visual de solo lectura dentro de EditReservationModal — no forma
 // parte del <form> de status/payment_status, solo da contexto de a qué
 // corresponde el monto total antes de que el admin edite el estado.
-function ServiceBreakdown({ reservation }: { reservation: ReservationWithRelations }) {
+function ServiceBreakdown({ reservation }: { reservation: Reservation }) {
   const serviceLines = buildServiceLines(reservation);
-  const servicesSubtotal = serviceLines.reduce((sum, line) => sum + line.amount, 0);
-  const grandTotal = reservation.total_amount + servicesSubtotal;
+  // `subtotal_servicios` y `gran_total` los deriva el backend a partir de los
+  // mismos precios guardados. Se muestran los suyos —en vez de volver a
+  // sumarlos aquí— para que el panel y la API nunca puedan discrepar.
+  const servicesSubtotal = toNumber(reservation.subtotal_servicios);
+  const grandTotal = toNumber(reservation.gran_total);
 
   return (
     <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
@@ -212,7 +205,7 @@ function ServiceBreakdown({ reservation }: { reservation: ReservationWithRelatio
           {serviceLines.map((line) => (
             <li key={line.key} className="flex items-baseline justify-between gap-4 text-xs text-neutral-600">
               <span className="truncate">{line.label}</span>
-              <span className="shrink-0 tabular-nums text-neutral-900">${line.amount.toFixed(2)}</span>
+              <span className="shrink-0 tabular-nums text-neutral-900">{formatMoney(line.amount)}</span>
             </li>
           ))}
         </ul>
@@ -221,15 +214,15 @@ function ServiceBreakdown({ reservation }: { reservation: ReservationWithRelatio
       <div className="mt-3 flex flex-col gap-1 border-t border-neutral-200 pt-3">
         <div className="flex justify-between text-xs text-neutral-600">
           <span>Estadía</span>
-          <span className="tabular-nums">${reservation.total_amount.toFixed(2)}</span>
+          <span className="tabular-nums">{formatMoney(reservation.total_amount)}</span>
         </div>
         <div className="flex justify-between text-xs text-neutral-600">
           <span>Subtotal servicios</span>
-          <span className="tabular-nums">${servicesSubtotal.toFixed(2)}</span>
+          <span className="tabular-nums">{formatMoney(servicesSubtotal)}</span>
         </div>
         <div className="flex justify-between text-sm font-semibold text-neutral-900">
           <span>Gran total</span>
-          <span className="tabular-nums">${grandTotal.toFixed(2)}</span>
+          <span className="tabular-nums">{formatMoney(grandTotal)}</span>
         </div>
       </div>
     </div>
@@ -242,7 +235,7 @@ function EditReservationModal({
   onSave,
   isPending,
 }: {
-  reservation: ReservationWithRelations;
+  reservation: Reservation;
   onClose: () => void;
   onSave: (updates: { status: ReservationStatus; payment_status: PaymentStatus }) => void;
   isPending: boolean;
@@ -257,7 +250,7 @@ function EditReservationModal({
     onSave({ status, payment_status: paymentStatus });
   }
 
-  const guestName = reservation.guest ? formatFullName(reservation.guest) : "Huésped no disponible";
+  const guestName = reservation.guest.nombre_completo;
 
   return (
     <div
@@ -279,7 +272,7 @@ function EditReservationModal({
         </p>
         <p className="mt-2 text-xs text-neutral-400">
           {formatDate(reservation.check_in)} – {formatDate(reservation.check_out)}
-          {reservation.fare_type && ` · ${reservation.fare_type.name}`}
+          {reservation.fare_type_name && ` · ${reservation.fare_type_name}`}
         </p>
 
         <ServiceBreakdown reservation={reservation} />
@@ -415,7 +408,7 @@ function CreateReservationModal({
             >
               {guests.map((guest) => (
                 <option key={guest.id} value={guest.id}>
-                  {formatFullName(guest)} ({guest.email})
+                  {guest.nombre_completo} ({guest.email})
                 </option>
               ))}
             </select>
@@ -532,7 +525,7 @@ function DeleteReservationModal({
   onConfirm,
   isPending,
 }: {
-  reservation: ReservationWithRelations;
+  reservation: Reservation;
   onClose: () => void;
   onConfirm: () => void;
   isPending: boolean;
@@ -543,7 +536,7 @@ function DeleteReservationModal({
   const [step, setStep] = useState<1 | 2>(1);
   useCloseOnEscape(onClose);
 
-  const guestName = reservation.guest ? formatFullName(reservation.guest) : "este huésped";
+  const guestName = reservation.guest.nombre_completo;
 
   return (
     <div
@@ -610,21 +603,21 @@ export default function ReservationsTable({
   fareTypes,
   propertySettings,
 }: {
-  reservations: ReservationWithRelations[];
+  reservations: Reservation[];
   guests: GuestOption[];
   fareTypes: FareTypeOption[];
   propertySettings: PropertySettingsSummary;
 }) {
-  const [selectedReservation, setSelectedReservation] = useState<ReservationWithRelations | null>(null);
+  const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [reservationToDelete, setReservationToDelete] = useState<ReservationWithRelations | null>(null);
+  const [reservationToDelete, setReservationToDelete] = useState<Reservation | null>(null);
   const [isUpdatePending, startUpdateTransition] = useTransition();
   const [isCreatePending, startCreateTransition] = useTransition();
   const [isDeletePending, startDeleteTransition] = useTransition();
 
   const canCreate = guests.length > 0 && fareTypes.length > 0;
 
-  function handleEditClick(reservation: ReservationWithRelations) {
+  function handleEditClick(reservation: Reservation) {
     setSelectedReservation(reservation);
   }
 
@@ -667,7 +660,7 @@ export default function ReservationsTable({
     });
   }
 
-  function handleDeleteClick(reservation: ReservationWithRelations) {
+  function handleDeleteClick(reservation: Reservation) {
     setReservationToDelete(reservation);
   }
 
@@ -732,17 +725,15 @@ export default function ReservationsTable({
                 <tr key={reservation.id} className="border-b border-neutral-100 last:border-0">
                   <td className="px-4 py-3">
                     <div className="font-medium text-neutral-900">
-                      {reservation.guest ? formatFullName(reservation.guest) : "Huésped no disponible"}
+                      {reservation.guest.nombre_completo}
                     </div>
-                    {reservation.guest && (
-                      <div className="text-xs text-neutral-500">{reservation.guest.email}</div>
-                    )}
+                    <div className="text-xs text-neutral-500">{reservation.guest.email}</div>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
                     {formatDate(reservation.check_in)} – {formatDate(reservation.check_out)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
-                    {reservation.fare_type?.name ?? "—"}
+                    {reservation.fare_type_name || "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <ServicesIndicators
@@ -752,7 +743,7 @@ export default function ReservationsTable({
                     />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
-                    ${reservation.total_amount.toFixed(2)}
+                    {formatMoney(reservation.total_amount)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <ReservationStatusBadge status={reservation.status} />

@@ -7,34 +7,34 @@ import { toast } from "sonner";
 import { useCart, generateCartItemId } from "@/lib/CartContext";
 import { formatSimulatedDate } from "@/lib/format";
 import type { CartItem } from "@/lib/cart-types";
-import type { Enums } from "@/lib/database.types";
+import type { MealType } from "@/lib/api/types";
 import Calendar from "@/components/Calendar";
 
 type MenuOption = {
   id: string;
-  meal_type: Enums<"meal_type">;
+  meal_type: MealType;
   name: string;
   price_per_person: number;
 };
 
-// Orden fijo de despliegue de los tiempos de comida — el ENUM real ya trae
+// Orden fijo de despliegue de los tiempos de comida — el enum del backend ya trae
 // las cadenas en español, así que se usan directo como value/label sin tabla
 // de traducción aparte.
-const MEAL_TYPE_ORDER: Enums<"meal_type">[] = ["Desayuno", "Almuerzo", "Cena"];
+const MEAL_TYPE_ORDER: MealType[] = ["Desayuno", "Almuerzo", "Cena"];
 
 export default function FoodBookingForm({
   menus,
   availableDates,
 }: {
   menus: MenuOption[];
-  // Fechas ISO ("yyyy-MM-dd") de food_availability, ya filtradas a partir de
-  // hoy y ordenadas ascendentemente desde app/servicios/comida/page.tsx.
+  // Fechas ISO ("yyyy-MM-dd") de FoodAvailability. El backend ya le oculta al
+  // huésped los días pasados, así que llegan listas para pintar el calendario.
   availableDates: string[];
 }) {
   const router = useRouter();
   const { addToCart } = useCart();
   const [day, setDay] = useState("");
-  const [mealType, setMealType] = useState<Enums<"meal_type"> | "">("");
+  const [mealType, setMealType] = useState<MealType | "">("");
   const [menuOptionId, setMenuOptionId] = useState("");
   const [guests, setGuests] = useState(1);
 
@@ -47,7 +47,7 @@ export default function FoodBookingForm({
     setDay(value);
   }
 
-  function handleSelectMealType(value: Enums<"meal_type">) {
+  function handleSelectMealType(value: MealType) {
     setMealType(value);
     setMenuOptionId("");
   }

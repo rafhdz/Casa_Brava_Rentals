@@ -1,11 +1,11 @@
-import type { Tables } from "@/lib/database.types";
+import type { AmenityCategory } from "@/lib/api/types";
 
-export type Amenity = Pick<Tables<"amenities">, "id" | "name" | "icon_url">;
-export type AmenityCategory = Pick<Tables<"amenity_categories">, "id" | "name"> & {
-  amenities: Amenity[];
-};
+// El backend ya devuelve cada categoría con sus amenidades anidadas y
+// ordenadas (`/api/propiedades/amenidades/categorias/`), así que aquí no hay
+// ninguna agrupación que hacer.
+type Props = { categories: Pick<AmenityCategory, "id" | "name" | "amenities">[] };
 
-export default function AmenitiesList({ categories }: { categories: AmenityCategory[] }) {
+export default function AmenitiesList({ categories }: Props) {
   return (
     <div className="flex flex-col gap-8">
       {categories.map((category) => (

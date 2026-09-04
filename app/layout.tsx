@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { AuthProvider } from "@/lib/AuthContext";
 import { CartProvider } from "@/lib/CartContext";
+import { getSessionUser } from "@/lib/api/server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,14 +23,19 @@ export const metadata: Metadata = {
   description: "Sistema de reservaciones para casa privada — acceso por invitación.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// Server Component `async`: resuelve la sesión antes del primer render y se
+// la entrega al AuthProvider ya hidratada. El navegador no puede hacerlo por
+// su cuenta — el token vive en una cookie httpOnly (ver lib/api/session.ts).
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const user = await getSessionUser();
+
   return (
     <html
       lang="es"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-white text-neutral-900">
-        <AuthProvider>
+        <AuthProvider initialUser={user}>
           <CartProvider>
             <Navbar />
             <main className="min-w-0 flex-1">{children}</main>

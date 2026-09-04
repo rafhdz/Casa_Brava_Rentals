@@ -6,21 +6,9 @@ import { useAuth } from "@/lib/AuthContext";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Traduce los mensajes de AuthApiError de Supabase a español, sin exponer
-// detalles internos del proveedor de auth en la UI.
-function translateAuthError(message: string): string {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("invalid login credentials")) {
-    return "Correo o contraseña incorrectos.";
-  }
-  if (normalized.includes("email not confirmed")) {
-    return "Debes confirmar tu correo antes de iniciar sesión.";
-  }
-  if (normalized.includes("too many requests")) {
-    return "Demasiados intentos. Espera un momento antes de volver a intentar.";
-  }
-  return "No pudimos iniciar sesión. Intenta de nuevo.";
-}
+// La traducción de los errores de autenticación vive ahora en la Server Action
+// (app/actions/auth.ts): es quien habla con SimpleJWT y la única que ve el
+// mensaje crudo del backend. Aquí solo se muestra lo que devuelve.
 
 export default function LoginPage() {
   const router = useRouter();
@@ -63,7 +51,7 @@ export default function LoginPage() {
 
     if (error) {
       setIsSubmitting(false);
-      setPasswordError(translateAuthError(error));
+      setPasswordError(error);
       return;
     }
 

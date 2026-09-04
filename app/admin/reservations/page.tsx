@@ -1,27 +1,21 @@
-import { createClient } from "@/lib/supabase/server";
+import { serverFetchAll } from "@/lib/api/server";
+import { toNumber } from "@/lib/format";
 import { getReservations } from "@/app/admin/reservations/actions";
 import ReservationsTable from "@/components/ReservationsTable";
 import BackButton from "@/components/BackButton";
+import type { FareType, PropertySettings, Usuario } from "@/lib/api/types";
 
 export default async function AdminReservationsPage() {
-  const supabase = await createClient();
-
-  const [reservationsResult, profilesResult, fareTypesResult, propertySettingsResult] = await Promise.all([
+  const [reservationsResult, guests, fareTypes, settings] = await Promise.all([
     getReservations(),
-    supabase
-      .from("profiles")
-      .select("id, first_name, apellido_paterno, apellido_materno, email")
-      .order("first_name", { ascending: true }),
-    supabase.from("fare_types").select("id, name, surcharge_percentage"),
-    supabase.from("property_settings").select("nightly_rate, security_deposit").single(),
+    serverFetchAll<Usuario>("/api/usuarios/").catch(() => null),
+    serverFetchAll<FareType>("/api/propiedades/tarifas/").catch(() => null),
+    serverFetchAll<PropertySettings>("/api/propiedades/configuracion/").catch(() => null),
   ]);
 
+  const propertySettings = settings?.[0] ?? null;
   const hasError =
-    "error" in reservationsResult ||
-    Boolean(profilesResult.error) ||
-    Boolean(fareTypesResult.error) ||
-    Boolean(propertySettingsResult.error) ||
-    !propertySettingsResult.data;
+    "error" in reservationsResult || guests === null || fareTypes === null || propertySettings === null;
 
   return (
     <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
@@ -34,14 +28,24 @@ export default async function AdminReservationsPage() {
 
       {hasError ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          No se pudieron cargar los datos de reservaciones. Intenta recargar la página.
+          No se pudieron cargar los datos de reservaciones. Verifica que el backend esté corriendo
+          e intenta recargar la página.
         </p>
       ) : (
         <ReservationsTable
           reservations={"data" in reservationsResult ? reservationsResult.data : []}
-          guests={profilesResult.data ?? []}
-          fareTypes={fareTypesResult.data ?? []}
-          propertySettings={propertySettingsResult.data ?? { nightly_rate: 0, security_deposit: 0 }}
+          guests={guests.map(({ id, nombre_completo, email }) => ({ id, nombre_completo, email }))}
+          // Los decimales llegan como string desde DRF; se convierten aquí para
+          // que el modal de creación calcule el total sugerido con números.
+          fareTypes={fareTypes.map((fare) => ({
+            id: fare.id,
+            name: fare.name,
+            surcharge_percentage: toNumber(fare.surcharge_percentage),
+          }))}
+          propertySettings={{
+            nightly_rate: toNumber(propertySettings.nightly_rate),
+            security_deposit: toNumber(propertySettings.security_deposit),
+          }}
         />
       )}
     </div>

@@ -1,18 +1,18 @@
-import type { Enums } from "@/lib/database.types";
+import type { MealType } from "@/lib/api/types";
 
 export type SpaReservation = {
   masseuseId: string;
   masseuseName: string;
-  day: string; // fecha ISO ("yyyy-MM-dd"), tomada de spa_availability.available_date
-  time: string; // hora en 24h ("HH:mm:ss"), tomada de spa_availability.available_time
+  day: string; // fecha ISO ("yyyy-MM-dd"), tomada de SpaAvailability.available_date
+  time: string; // hora en 24h ("HH:mm:ss"), tomada de SpaAvailability.available_time
 };
 
-// mealType usa directamente el ENUM real de la base (meal_type: "Desayuno" |
+// mealType usa directamente el enum real del backend (MealType: "Desayuno" |
 // "Almuerzo" | "Cena") — el valor ya viene en español y sirve como label sin
 // traducción aparte, por eso no hay un campo mealTypeLabel separado.
 export type FoodReservation = {
-  day: string; // fecha ISO ("yyyy-MM-dd"), tomada de food_availability.available_date
-  mealType: Enums<"meal_type">;
+  day: string; // fecha ISO ("yyyy-MM-dd"), tomada de FoodAvailability.available_date
+  mealType: MealType;
   menuOptionId: string;
   menuOptionName: string;
   guests: number;
@@ -29,7 +29,7 @@ export type WineOrder = {
   bottles: WineOrderBottle[];
   packageQuantity: number;
   packageUnitPrice: number;
-  packageId: string | null; // wine_packages.id real — null si packageQuantity es 0
+  packageId: string | null; // WinePackage.id real — null si packageQuantity es 0
 };
 
 export type CartItem =

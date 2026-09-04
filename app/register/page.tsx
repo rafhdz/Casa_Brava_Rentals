@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { compensateFailedRegistration } from "@/app/register/actions";
+import { registerAction } from "@/app/actions/auth";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -24,22 +23,9 @@ const inputClassName = (hasError: boolean) =>
       : "border-neutral-200 focus:ring-neutral-900"
   }`;
 
-// Traduce los mensajes de AuthApiError de Supabase a español, mismo patrón que
-// translateAuthError en app/login/page.tsx — solo cubre lo que un huésped
-// realmente puede provocar desde este formulario.
-function translateSignUpError(message: string): string {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("already registered") || normalized.includes("already been registered")) {
-    return "Ya existe una cuenta con este correo.";
-  }
-  if (normalized.includes("password should be at least")) {
-    return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`;
-  }
-  if (normalized.includes("unable to validate email") || normalized.includes("invalid email")) {
-    return "Ingresa un correo electrónico válido.";
-  }
-  return "No pudimos completar tu registro. Intenta de nuevo.";
-}
+// Los mensajes de error los redacta el backend (correo duplicado, contraseña
+// demasiado común o corta, etc.) y llegan ya en español desde la Server
+// Action, así que aquí no hay tabla de traducción: se muestran tal cual.
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -63,13 +49,6 @@ export default function RegisterPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    if (!success) return;
-    const timer = setTimeout(() => router.push("/login"), 2000);
-    return () => clearTimeout(timer);
-  }, [success, router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -142,60 +121,30 @@ export default function RegisterPage() {
 
     setIsSubmitting(true);
 
-    const supabase = createClient();
-    const { data, error } = await supabase.auth.signUp({
+    // La cuenta y su perfil son una sola fila en el backend, así que se crean
+    // en una sola petición: ya no hay un segundo insert que pueda fallar y
+    // dejar un usuario a medias (con cuenta pero sin perfil) ocupando ese
+    // correo. La Server Action encadena además el login, para entrar directo
+    // sin pasar por /login. El rol siempre es `guest`: el endpoint de registro
+    // ni siquiera acepta el campo.
+    const result = await registerAction({
       email: trimmedEmail,
       password,
-    });
-
-    if (error) {
-      setIsSubmitting(false);
-      setFormError(translateSignUpError(error.message));
-      return;
-    }
-
-    if (!data.user) {
-      setIsSubmitting(false);
-      setFormError("No pudimos completar tu registro. Intenta de nuevo.");
-      return;
-    }
-
-    const { error: profileError } = await supabase.from("profiles").insert({
-      id: data.user.id,
-      email: trimmedEmail,
+      password_confirm: confirmPassword,
       first_name: trimmedNombre,
       apellido_paterno: trimmedApellidoPaterno,
       apellido_materno: trimmedApellidoMaterno || null,
-      role: "guest",
-      status: "activo",
+      phone: `${countryCode} ${trimmedPhoneNumber}`,
     });
 
-    if (profileError) {
-      // El perfil no se pudo crear pero la cuenta de Auth ya existe — revertir
-      // para no dejar un usuario huérfano (con cuenta pero sin perfil) que
-      // dejaría ese correo "ocupado" y bloquearía cualquier reintento. Ver el
-      // detalle del guard de propiedad en app/register/actions.ts.
-      const compensation = await compensateFailedRegistration(data.user.id);
+    if ("error" in result) {
       setIsSubmitting(false);
-      setFormError(
-        "error" in compensation
-          ? "No se pudo completar tu registro y no pudimos revertirlo automáticamente. Contacta a soporte."
-          : "No se pudo completar tu registro. Intenta de nuevo."
-      );
+      setFormError(result.error);
       return;
     }
 
-    setIsSubmitting(false);
-
-    if (data.session) {
-      // Confirmación de correo deshabilitada en el proyecto: signUp ya dejó
-      // una sesión activa, así que no hace falta pasar por /login.
-      router.push("/");
-      router.refresh();
-      return;
-    }
-
-    setSuccess(true);
+    router.push("/");
+    router.refresh();
   }
 
   return (
@@ -211,13 +160,6 @@ export default function RegisterPage() {
       </div>
 
       <div className="mt-8 w-full rounded-2xl border border-neutral-200 bg-white p-8 shadow-lg">
-        {success && (
-          <p className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
-            Registro completado con éxito. Revisa tu correo si se requiere confirmación, o
-            inicia sesión directamente. Redirigiendo a /login...
-          </p>
-        )}
-
         {formError && (
           <p className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
             {formError}
@@ -225,7 +167,7 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} noValidate className="flex w-full flex-col gap-4">
-          <fieldset disabled={success || isSubmitting} className="flex w-full flex-col gap-4">
+          <fieldset disabled={isSubmitting} className="flex w-full flex-col gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-sm font-medium text-neutral-700">Nombre(s)</span>
               <input
@@ -365,7 +307,7 @@ export default function RegisterPage() {
               type="submit"
               className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {success ? "Redirigiendo..." : isSubmitting ? "Registrando…" : "Registrarse"}
+              {isSubmitting ? "Registrando…" : "Registrarse"}
             </button>
           </fieldset>
         </form>

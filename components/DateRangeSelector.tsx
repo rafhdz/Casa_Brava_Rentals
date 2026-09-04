@@ -37,8 +37,8 @@ export default function DateRangeSelector({
 
   // Intervalo semi-abierto [check_in, check_out): el día de check_out de una
   // reserva confirmada NO se deshabilita, porque un huésped nuevo puede
-  // hacer check-in ese mismo día (misma regla que hasOverlappingConfirmedReservation
-  // en lib/supabase/reservation-rules.ts). Por eso el rango deshabilitado en el
+  // hacer check-in ese mismo día (misma regla de solapamiento que aplica el alta de reservación
+  // del backend). Por eso el rango deshabilitado en el
   // calendario termina un día antes del check_out real (subDays(checkOut, 1)),
   // no en el check_out mismo.
   const disabledBookedRanges: Matcher[] = useMemo(

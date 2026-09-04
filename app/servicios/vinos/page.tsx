@@ -1,12 +1,13 @@
-import { createClient } from "@/lib/supabase/server";
+import { serverFetchAll } from "@/lib/api/server";
+import { toNumber } from "@/lib/format";
 import WineBookingForm from "@/components/WineBookingForm";
 import BackButton from "@/components/BackButton";
+import type { Wine, WinePackage } from "@/lib/api/types";
 
 export default async function VinosServicePage() {
-  const supabase = await createClient();
-  const [{ data: wines }, { data: winePackages }] = await Promise.all([
-    supabase.from("wines").select("id, name, type, price").gt("stock", 0).order("name", { ascending: true }),
-    supabase.from("wine_packages").select("id, name, price").limit(1),
+  const [wines, winePackages] = await Promise.all([
+    serverFetchAll<Wine>("/api/servicios/vinos/"),
+    serverFetchAll<WinePackage>("/api/servicios/paquetes-vino/"),
   ]);
 
   return (
@@ -18,7 +19,27 @@ export default async function VinosServicePage() {
           Agrega botellas individuales o selecciona el paquete de 4 vinos.
         </p>
       </div>
-      <WineBookingForm wines={wines ?? []} winePackage={winePackages?.[0] ?? null} />
+      <WineBookingForm
+        // Solo se ofertan botellas con inventario; los precios llegan como
+        // string decimal desde DRF y se convierten aquí.
+        wines={wines
+          .filter((wine) => wine.stock > 0)
+          .map((wine) => ({
+            id: wine.id,
+            name: wine.name,
+            type: wine.type,
+            price: toNumber(wine.price),
+          }))}
+        winePackage={
+          winePackages[0]
+            ? {
+                id: winePackages[0].id,
+                name: winePackages[0].name,
+                price: toNumber(winePackages[0].price),
+              }
+            : null
+        }
+      />
     </div>
   );
 }

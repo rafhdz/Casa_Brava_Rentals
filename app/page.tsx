@@ -1,35 +1,27 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { publicFetchAll } from "@/lib/api/server";
 import Carousel from "@/components/Carousel";
 import AmenitiesList from "@/components/AmenitiesList";
 import ServiceCard from "@/components/ServiceCard";
+import type { AdditionalServiceInfo, AmenityCategory, PropertyPhoto } from "@/lib/api/types";
 
+// El contenido del Home (fotos, amenidades y tarjetas de servicios) es de
+// lectura pública en el backend, así que se pide con `publicFetchAll`: manda
+// el token si hay sesión, pero no la exige. Los tres endpoints declaran
+// `pagination_class = None` y devuelven arreglos planos, ya ordenados por el
+// `sort_order` que preserva el recorrido curado de la casa — el frontend no
+// reordena nada.
 export default async function HomePage() {
-  const supabase = await createClient();
-
-  // Ordenar por `id` en additional_services_info reproduce a propósito el
-  // orden curado que tenía el arreglo ADDITIONAL_SERVICES del mock
-  // ("comida" < "spa" < "vinos" alfabéticamente) — no hay columna de orden
-  // para esta tabla en el esquema (a diferencia de property_photos y
-  // amenity_categories/amenities, que sí la necesitan para preservar un
-  // recorrido curado más largo).
-  const [{ data: photos }, { data: categories }, { data: services }] = await Promise.all([
-    supabase.from("property_photos").select("id, url, label").order("sort_order", { ascending: true }),
-    supabase
-      .from("amenity_categories")
-      .select("id, name, amenities(id, name, icon_url)")
-      .order("sort_order", { ascending: true })
-      .order("sort_order", { foreignTable: "amenities", ascending: true }),
-    supabase
-      .from("additional_services_info")
-      .select("id, title, description, image_url, price_hint")
-      .order("id", { ascending: true }),
+  const [photos, categories, services] = await Promise.all([
+    publicFetchAll<PropertyPhoto>("/api/propiedades/fotos/"),
+    publicFetchAll<AmenityCategory>("/api/propiedades/amenidades/categorias/"),
+    publicFetchAll<AdditionalServiceInfo>("/api/propiedades/servicios-info/"),
   ]);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 py-10 sm:px-6">
       <section>
-        <Carousel photos={photos ?? []} />
+        <Carousel photos={photos} />
       </section>
 
       <section className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -55,7 +47,7 @@ export default async function HomePage() {
           Amenidades de la casa
         </h2>
         <div className="mt-4">
-          <AmenitiesList categories={categories ?? []} />
+          <AmenitiesList categories={categories} />
         </div>
       </section>
 
@@ -64,7 +56,7 @@ export default async function HomePage() {
           Servicios adicionales
         </h2>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(services ?? []).map((service) => (
+          {services.map((service) => (
             <ServiceCard key={service.id} service={service} />
           ))}
         </div>
