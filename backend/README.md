@@ -18,7 +18,7 @@ cd backend
 uv sync                                   # instala dependencias en .venv
 cp .env.example .env                      # ajustar credenciales de la base
 uv run python manage.py migrate           # crea el esquema
-uv run python manage.py seed_demo         # datos de desarrollo (opcional)
+uv run python manage.py seed_demo         # datos de desarrollo + contenido del Home (opcional)
 uv run python manage.py createsuperuser   # acceso al admin de Django
 uv run python manage.py runserver         # http://localhost:8000
 ```
@@ -165,7 +165,7 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
 | `liberar_slots_de_reservacion` | `release_spa_slots_for_reservation()` | Cancelar libera horarios sin borrar historial |
 | `readquirir_slots_de_reservacion` | `reacquire_spa_slots_for_reservation()` | Reactivar una cancelada no puede pisar lo que otro ya tomó |
 
-### Las tres reglas que hay que conocer antes de tocar este archivo
+### Las cuatro reglas que hay que conocer antes de tocar este archivo
 
 1. **Orden de bloqueo fijo**: `PropertySettings` → `Reservation` →
    `SpaAvailability` (recorrida ordenada por masajista, fecha, hora). Dos
@@ -177,11 +177,21 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
    reservaciones que se solapan" porque **todavía no existen**: sin este lock,
    dos peticiones concurrentes leen "no hay solape" a la vez y ambas insertan.
 
-3. **El solapamiento se verifica en dos disparadores**, no solo al cambiar
-   fechas: también cuando el estado efectivo queda en `confirmada`. Ese es el
-   camino real por el que una reserva se confirma desde el panel (el PATCH solo
-   manda `status`); sin ese segundo disparador, dos reservas pendientes con
-   fechas cruzadas se confirmarían una tras otra sin que nadie lo notara.
+3. **El solapamiento se verifica contra reservas *activas* (`pendiente` o
+   `confirmada`), no solo `confirmada`.** `checkoutStay` crea la estadía del
+   huésped ya en `pendiente`, así que una `pendiente` tiene que ocupar el
+   calendario desde que se crea — verificar solo contra confirmadas dejaba una
+   ventana real de double-booking: dos huéspedes podían quedarse cada uno con
+   una reserva `pendiente` sobre las mismas fechas, y el choque solo salía a la
+   luz cuando un admin intentaba confirmar la segunda.
+4. **El chequeo de solapamiento corre en varios disparadores**, no solo al cambiar fechas:
+   también cuando la reservación se reactiva (`cancelada`/`finalizada` → un
+   estado activo) y cuando el estado efectivo queda en `confirmada` sin haber
+   pasado por reactivación. El primero cubre el camino real por el que una
+   reserva se confirma desde el panel (el PATCH solo manda `status`); el
+   segundo, que una reserva cancelada se reactive — incluso solo a
+   `pendiente` — pisando fechas que otra reservación tomó mientras esta
+   estaba inactiva.
 
 ### Montos
 
@@ -248,7 +258,7 @@ corto a dejar el panel sin acceso).
 /api/servicios/comida/disponibilidad/    Días habilitados (?desde=&hasta=)
 
 /api/reservaciones/reservaciones/        Estadías (?status=&payment_status=)
-/api/reservaciones/reservaciones/ocupadas/   Rangos confirmados, para el calendario
+/api/reservaciones/reservaciones/ocupadas/   Rangos activos (pendiente + confirmada), para el calendario
 /api/reservaciones/spa/                  Sesiones de spa contratadas
 /api/reservaciones/comida/               Servicios de cocina contratados
 /api/reservaciones/vinos/                Pedidos de vino (cabecera + líneas juntas)

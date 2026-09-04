@@ -94,27 +94,41 @@ class SolapamientoTests(BaseDominio):
         with self.assertRaises(services.SolapamientoError):
             self._reservar(12, 18, guest=self.otro_huesped)
 
+    def test_rechaza_rango_encimado_con_pendiente(self):
+        """Una `pendiente` también ocupa el calendario.
+
+        `checkoutStay` crea la estadía del huésped en `pendiente`, no en
+        `confirmada` — si el chequeo de solapamiento solo mirara confirmadas,
+        dos huéspedes podrían quedarse cada uno con una reserva `pendiente`
+        sobre las mismas fechas sin que nada lo impidiera hasta que un admin
+        intentara confirmar la segunda. Por eso el chequeo corre contra
+        `activas()` (pendiente o confirmada) y debe rechazar esto en el
+        momento de crear, no después.
+        """
+        self._reservar(10, 15, status=ReservationStatus.PENDIENTE)
+        with self.assertRaises(services.SolapamientoError):
+            self._reservar(12, 18, guest=self.otro_huesped, status=ReservationStatus.PENDIENTE)
+
     def test_permite_checkin_el_mismo_dia_del_checkout_anterior(self):
         """Intervalo semi-abierto: entrar el día que otro sale no es conflicto."""
         self._reservar(10, 15)
         reservacion = self._reservar(15, 20, guest=self.otro_huesped)
         self.assertIsNotNone(reservacion.pk)
 
-    def test_una_pendiente_no_bloquea_el_calendario(self):
-        self._reservar(10, 15, status=ReservationStatus.PENDIENTE)
-        self.assertIsNotNone(self._reservar(12, 18, guest=self.otro_huesped))
+    def test_reactivar_a_pendiente_con_fechas_ya_tomadas_se_rechaza(self):
+        """El disparador de reactivación cubre `pendiente`, no solo `confirmada`.
 
-    def test_confirmar_una_pendiente_encimada_se_rechaza(self):
-        """El caso real del panel: el PATCH solo manda `status`, no fechas.
-
-        Se crea primero la pendiente (nada bloquea el calendario todavía) y
-        después la confirmada que se le encima; al intentar confirmar la
-        primera, el segundo disparador del chequeo tiene que atraparlo.
+        Se cancela una reserva (libera sus fechas), otro huésped toma esas
+        mismas fechas, y al intentar reactivar la primera —incluso solo hacia
+        `pendiente`, sin pasar por `confirmada`— debe rechazarse: una
+        `pendiente` reactivada vuelve a ocupar el calendario tanto como la que
+        ya está ahí.
         """
-        pendiente = self._reservar(12, 18, status=ReservationStatus.PENDIENTE)
-        self._reservar(10, 15, guest=self.otro_huesped)
+        reservacion = self._reservar(10, 15)
+        services.actualizar_reservacion(reservacion.pk, status=ReservationStatus.CANCELADA)
+        self._reservar(12, 18, guest=self.otro_huesped, status=ReservationStatus.PENDIENTE)
         with self.assertRaises(services.SolapamientoError):
-            services.actualizar_reservacion(pendiente.pk, status=ReservationStatus.CONFIRMADA)
+            services.actualizar_reservacion(reservacion.pk, status=ReservationStatus.PENDIENTE)
 
     def test_una_cancelada_libera_las_fechas(self):
         confirmada = self._reservar(10, 15)
@@ -419,6 +433,34 @@ class ApiReservacionesTests(BaseDominio):
             format="json",
         )
         self.assertEqual(respuesta.status_code, 409, respuesta.data)
+
+    def test_ocupadas_incluye_pendientes_y_confirmadas(self):
+        """El calendario de `/reservar` debe pintar como ocupadas también las
+        `pendiente`, no solo las `confirmada` — si no, el huésped ve una fecha
+        libre que el alta va a rechazar de todos modos (ver
+        `test_rechaza_rango_encimado_con_pendiente`)."""
+        pendiente = services.crear_reservacion(
+            guest=self.otro_huesped,
+            check_in=HOY + timedelta(days=80),
+            check_out=HOY + timedelta(days=82),
+            fare_type=self.tarifa,
+            status=ReservationStatus.PENDIENTE,
+        )
+        confirmada = services.crear_reservacion(
+            guest=self.huesped,
+            check_in=HOY + timedelta(days=90),
+            check_out=HOY + timedelta(days=92),
+            fare_type=self.tarifa,
+            status=ReservationStatus.CONFIRMADA,
+        )
+        self._autenticar(self.huesped)
+        respuesta = self.client.get(reverse("reservacion-ocupadas"))
+        self.assertEqual(respuesta.status_code, 200, respuesta.data)
+        # `respuesta.data` es la respuesta ya parseada de vuelta a objetos
+        # Python: `check_in`/`check_out` llegan como `date`, no como string.
+        rangos = {(r["check_in"], r["check_out"]) for r in respuesta.data}
+        self.assertIn((pendiente.check_in, pendiente.check_out), rangos)
+        self.assertIn((confirmada.check_in, confirmada.check_out), rangos)
 
 
 class ApiUsuariosTests(BaseDominio):

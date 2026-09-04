@@ -10,10 +10,11 @@ export default async function ReservarPage() {
     // `configuracion` es una colección de una sola fila (la casa es una sola);
     // el backend no expone un endpoint singular, así que se toma la primera.
     serverFetchAll<PropertySettings>("/api/propiedades/configuracion/"),
-    // Ayuda de UX: pinta en gris las fechas ya confirmadas para que nadie
-    // pierda tiempo eligiendo un rango que el servidor va a rechazar. NO es la
-    // protección contra el doble-booking — esa vive en el alta de la
-    // reservación, que verifica el solapamiento bajo bloqueo de fila.
+    // Ayuda de UX: pinta en gris las fechas de cualquier reservación activa
+    // (pendiente o confirmada) para que nadie pierda tiempo eligiendo un
+    // rango que el servidor va a rechazar. NO es la protección contra el
+    // doble-booking — esa vive en el alta de la reservación, que verifica el
+    // solapamiento bajo bloqueo de fila.
     serverFetch<BookedRange[]>("/api/reservaciones/reservaciones/ocupadas/"),
   ]);
 

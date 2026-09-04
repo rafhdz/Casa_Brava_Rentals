@@ -52,7 +52,7 @@ uv run python manage.py runserver
 | `uv sync` | Instala las dependencias de Python |
 | `cp .env.example .env` | Crea la configuración local (ajustar credenciales de la base ahí) |
 | `migrate` | Crea las tablas |
-| `seed_demo` | Carga datos de desarrollo. Se puede repetir sin duplicar |
+| `seed_demo` | Carga datos de desarrollo y el contenido del Home (fotos, amenidades, tarjetas de servicio). Se puede repetir sin duplicar |
 | `runserver` | Levanta la API en el puerto 8000 |
 
 Queda disponible:
@@ -201,7 +201,7 @@ Ningún texto, precio ni imagen de negocio está escrito en el código del front
 | Días con servicio de cocina | Disponibilidad de comida | `/servicios/comida` |
 | Vinos y paquetes | Vinos / Paquetes de vinos | `/servicios/vinos` |
 
-> ⚠️ **`seed_demo` no carga el contenido del Home** (fotos, amenidades ni tarjetas de servicios). Con la base recién sembrada esas secciones aparecen **vacías**; hay que cargarlas desde el admin de Django. No es un error del frontend.
+`seed_demo` **sí carga el contenido del Home** (60 fotos, 11 categorías con 28 amenidades y las 3 tarjetas de servicio), así que una base recién sembrada renderiza el carrusel y las listas del Home con este contenido curado.
 
 **Imágenes:** los archivos viven en `public/images/` y `public/icons/`. En la base solo se guarda la ruta (por ejemplo `/images/jardin_1.jpeg`). Para agregar una foto: copiar el archivo a `public/images/` y crear el registro con esa ruta.
 
@@ -252,7 +252,7 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 1. La página pide al backend las tarifas, la configuración de cobro y las fechas ya ocupadas.
 2. La persona elige fechas en el calendario (los rangos ocupados aparecen deshabilitados) y un tipo de tarifa.
 3. El resumen muestra: noches × tarifa + recargo + depósito.
-4. Al pulsar "Proceder al pago" se crea la reservación en el backend, que **recalcula el monto por su cuenta** y verifica que las fechas no choquen con otra reserva confirmada.
+4. Al pulsar "Proceder al pago" se crea la reservación en el backend, que **recalcula el monto por su cuenta** y verifica que las fechas no choquen con otra reserva **activa** (pendiente o confirmada) — la reservación nueva nace en `pendiente`, así que ya cuenta como ocupación del calendario para todos los demás.
 5. Si todo sale bien, va a `/pago-exitoso`. Si las fechas ya estaban tomadas, aparece un aviso y no se crea nada.
 
 ### Agregar servicios y pagarlos (`/servicios/*` → `/carrito`)
@@ -303,4 +303,3 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 | **Cobro real con Stripe** | El punto de enganche ya existe en el backend (`pagos.services.registrar_pago`). Falta conectar el proveedor y su webhook. Hoy el pago es simulado. |
 | **Vista de pagos en el panel** | El backend ya guarda cada movimiento de cobro por separado (anticipos, saldos, reembolsos), pero el panel todavía solo muestra el estado general de la reserva. |
 | **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. |
-| **Semilla del contenido del Home** | `seed_demo` no crea fotos, amenidades ni tarjetas de servicios: hay que cargarlas desde el admin de Django. |

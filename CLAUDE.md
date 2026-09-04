@@ -44,7 +44,7 @@ uv run python manage.py runserver
 
 - `uv sync` instala las dependencias en `backend/.venv`.
 - `cp .env.example .env` crea la configuración local; ajustar las credenciales de la base ahí.
-- `seed_demo` carga datos de desarrollo (usuarios, tarifas, catálogos y disponibilidad relativa a la fecha de hoy). Es idempotente: se puede volver a correr sin duplicar.
+- `seed_demo` carga datos de desarrollo (usuarios, tarifas, catálogos, disponibilidad relativa a la fecha de hoy, y el contenido visual del Home: fotos del carrusel, categorías de amenidades y tarjetas de servicios adicionales). Es idempotente: se puede volver a correr sin duplicar.
 - Opcional: `uv run python manage.py createsuperuser` para entrar al admin de Django.
 
 Con eso arriba:
@@ -255,7 +255,7 @@ Regla del dominio: **"estadía primero, servicios después"**. Una reservación 
   2. Recorre el carrito creando cada servicio: spa, comida o un pedido de vinos completo (cabecera + líneas en **una sola petición** — el backend no acepta crearlas por separado, justo para que no quede un pedido huérfano).
   3. **Compensación ante un fallo parcial**: si un paso falla a media lista, `compensar()` borra en orden inverso lo ya creado en ese mismo checkout. El backend hace lo correcto en cada caso —borrar una sesión de spa libera además su bloque, y un pedido de vinos se lleva sus líneas por cascada—, y un huésped puede borrar servicios mientras su estadía siga activa, que es exactamente el momento en que corre la compensación.
 - **[lib/checkout-errors.ts](lib/checkout-errors.ts)** exporta `RESERVATION_REQUIRED_ERROR`. Vive fuera de `checkout.ts` porque un archivo `"use server"` **solo puede exportar funciones `async`** — una constante de string ahí rompe el build. Así, tanto el servidor como `CartView.tsx` (cliente) importan el mismo mensaje sin duplicarlo como string mágico.
-- **Disponibilidad en el calendario de `/reservar`**: la página pide los rangos confirmados y se los pasa a `DateRangeSelector`. Es **ayuda de UX** —evita perder tiempo eligiendo fechas que el servidor va a rechazar—, no la protección contra el doble-booking, que vive en el alta bajo bloqueo. El intervalo es semi-abierto `[check_in, check_out)`: el día de salida de una reserva **no** se deshabilita, porque un huésped nuevo puede entrar ese mismo día. `DateRangeSelector` construye el rango como `{ from: parseISO(check_in), to: subDays(parseISO(check_out), 1) }`, y pasa `excludeDisabled` a `<Calendar mode="range">` para que la librería reinicie la selección si el usuario intenta "saltar" por encima de un rango bloqueado.
+- **Disponibilidad en el calendario de `/reservar`**: la página pide los rangos **activos** (`pendiente` + `confirmada`, no solo confirmada) y se los pasa a `DateRangeSelector`. Es **ayuda de UX** —evita perder tiempo eligiendo fechas que el servidor va a rechazar—, no la protección contra el doble-booking, que vive en el alta bajo bloqueo. Importa que incluya las `pendiente`: `checkoutStay` crea la estadía del huésped en ese estado, así que una reserva `pendiente` ya ocupa esas fechas contra el alta de otra (ver `hay_solapamiento` en `backend/reservaciones/services.py`) — mostrar solo confirmadas dejaría el calendario libre en fechas que el servidor va a rechazar igual. El intervalo es semi-abierto `[check_in, check_out)`: el día de salida de una reserva **no** se deshabilita, porque un huésped nuevo puede entrar ese mismo día. `DateRangeSelector` construye el rango como `{ from: parseISO(check_in), to: subDays(parseISO(check_out), 1) }`, y pasa `excludeDisabled` a `<Calendar mode="range">` para que la librería reinicie la selección si el usuario intenta "saltar" por encima de un rango bloqueado.
 
 ---
 
@@ -279,7 +279,7 @@ El carrito es la **única** estructura de datos que vive en `localStorage`, y so
 - El orden es responsabilidad del backend (`sort_order`): preserva el recorrido curado de la casa (jardín → estacionamiento → entradas → terraza → habitaciones…) y el orden de las amenidades dentro de cada categoría. **El frontend no reordena nada.**
 - El `id` de cada servicio (`"spa"` | `"comida"` | `"vinos"`) coincide con la carpeta de ruta bajo `app/servicios/`, a la que enlaza `ServiceCard`. El backend lo garantiza con una restricción, así que ese enlace nunca puede apuntar a una página inexistente.
 
-> ⚠️ **`seed_demo` no carga el contenido del Home** (fotos, amenidades ni tarjetas de servicios): solo usuarios, tarifas, catálogos de servicios y disponibilidad. Con la base recién sembrada, el Home renderiza el carrusel y las listas **vacías**. No es un fallo del frontend. Hasta que exista una semilla para esas tablas, hay que cargarlas desde el admin de Django (<http://localhost:8000/admin>).
+`seed_demo` **sí carga el contenido del Home** (60 fotos del carrusel, 11 categorías con 28 amenidades y las 3 tarjetas de servicio), recuperado de `supabase/seed.sql` del historial de git. Con la base recién sembrada, el Home renderiza el carrusel y las listas con este mismo contenido curado. Para modificarlo (agregar categorías, reordenar fotos, etc.) hoy no hay UI dedicada: se edita desde el admin de Django (<http://localhost:8000/admin>) o ajustando las constantes `PROPERTY_PHOTOS`/`AMENITY_CATEGORIES`/`AMENITIES`/`ADDITIONAL_SERVICES` en [seed_demo.py](backend/propiedades/management/commands/seed_demo.py).
 
 ---
 

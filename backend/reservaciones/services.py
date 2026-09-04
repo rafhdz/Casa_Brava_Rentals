@@ -101,14 +101,25 @@ def validar_fechas(check_in, check_out):
 
 def hay_solapamiento(check_in, check_out, excluir_id=None):
     """
-    ¿Choca este rango con alguna reservación **confirmada** y vigente?
+    ¿Choca este rango con alguna reservación **activa** (pendiente o
+    confirmada) y vigente?
+
+    Se verifica contra `activas()`, no solo contra `confirmadas()`: una
+    reservación `pendiente` ya ocupa el calendario desde que se crea, porque es
+    el registro que un huésped ve como "mi reserva" en cuanto paga la estadía
+    (`checkoutStay` la crea en `pendiente`, no en `confirmada`). Verificar solo
+    contra confirmadas dejaba una ventana real de double-booking: dos huéspedes
+    podían quedarse cada uno con una reservación `pendiente` sobre las mismas
+    fechas, y solo se descubría el choque cuando un admin intentaba confirmar
+    la segunda —demasiado tarde, con el huésped ya pensando que su lugar estaba
+    apartado.
 
     Intervalo semi-abierto `[check_in, check_out)`: un check-out el mismo día
     que el check-in de otra reserva no es conflicto. Como el sistema modela una
     sola casa, no se filtra por propiedad — todas compiten por el mismo
     calendario.
     """
-    conflictos = Reservation.objects.confirmadas().filter(
+    conflictos = Reservation.objects.activas().filter(
         check_in__lt=check_out, check_out__gt=check_in
     )
     if excluir_id is not None:
@@ -119,7 +130,7 @@ def hay_solapamiento(check_in, check_out, excluir_id=None):
 def _asegurar_sin_solapamiento(check_in, check_out, excluir_id=None):
     if hay_solapamiento(check_in, check_out, excluir_id):
         raise SolapamientoError(
-            "Las fechas seleccionadas se cruzan con una reservación ya confirmada."
+            "Las fechas seleccionadas se cruzan con otra reservación activa."
         )
 
 
@@ -213,11 +224,15 @@ def actualizar_reservacion(reservation_id, **cambios):
 
     Tres disparadores, en este orden:
 
-    1. **Solapamiento** — se verifica si cambian las fechas *o* si el estado
-       efectivo queda en `confirmada`, aunque las fechas no se toquen. Ese
-       segundo caso es el camino real por el que una reserva pasa de pendiente
-       a confirmada desde el panel; sin él, dos reservas pendientes con fechas
-       cruzadas podrían confirmarse una tras otra.
+    1. **Solapamiento** — se verifica si cambian las fechas, si la reservación
+       se reactiva, o si el estado efectivo queda en `confirmada`, aunque las
+       fechas no se toquen. Se verifica contra `activas()` (pendiente o
+       confirmada), no solo confirmadas: una reservación `pendiente` ya ocupa
+       el calendario desde que se crea (ver `hay_solapamiento`), así que
+       reactivar una `cancelada`/`finalizada` de vuelta a `pendiente` —no solo
+       a `confirmada`— también puede pisar fechas que otra reservación tomó
+       mientras esta estaba inactiva; sin cubrir ese camino, dos reservas
+       activas con fechas cruzadas podrían coexistir sin que nadie lo notara.
     2. **Reactivación** — si venía de `cancelada`/`finalizada` y vuelve a un
        estado activo, se re-adquieren sus bloques de spa **antes** de guardar,
        para poder abortar sin haber tocado la fila si alguno ya fue revendido.
@@ -233,15 +248,15 @@ def actualizar_reservacion(reservation_id, **cambios):
     check_out = cambios.get("check_out", reservacion.check_out)
 
     cambian_fechas = "check_in" in cambios or "check_out" in cambios
-    if cambian_fechas or status_efectivo == ReservationStatus.CONFIRMADA:
+    # Se usa el estado *anterior* real, no lo que mande el cliente: reactivar
+    # es pasar de un estado inactivo a uno activo.
+    es_reactivacion = status_anterior in ESTADOS_INACTIVOS and status_efectivo in ESTADOS_ACTIVOS
+    if cambian_fechas or es_reactivacion or status_efectivo == ReservationStatus.CONFIRMADA:
         validar_fechas(check_in, check_out)
         _bloquear_configuracion()
         configuracion_bloqueada = True
         _asegurar_sin_solapamiento(check_in, check_out, excluir_id=reservacion.pk)
 
-    # Se usa el estado *anterior* real, no lo que mande el cliente: reactivar
-    # es pasar de un estado inactivo a uno activo.
-    es_reactivacion = status_anterior in ESTADOS_INACTIVOS and status_efectivo in ESTADOS_ACTIVOS
     if es_reactivacion:
         readquirir_slots_de_reservacion(reservacion, _configuracion_bloqueada=configuracion_bloqueada)
 

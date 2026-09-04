@@ -216,14 +216,19 @@ class ReservationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="ocupadas")
     def ocupadas(self, request):
         """
-        Rangos confirmados, para pintar el calendario del huésped.
+        Rangos activos (pendientes y confirmados), para pintar el calendario
+        del huésped.
 
-        Es solo una ayuda de UX —evita que alguien pierda tiempo eligiendo
-        fechas que el servidor va a rechazar—; quien de verdad impide el
-        doble-booking es la verificación bajo bloqueo del alta.
+        Debe coincidir con lo que `services.hay_solapamiento` considera
+        "ocupado" (`activas()`, no solo `confirmadas()`): una reservación
+        `pendiente` ya bloquea esas fechas contra el alta de otra reserva, así
+        que el calendario tiene que mostrarlas como ocupadas también, o el
+        huésped vería fechas libres que el servidor va a rechazar igual. Es
+        solo una ayuda de UX —quien de verdad impide el doble-booking es la
+        verificación bajo bloqueo del alta—.
         """
         rangos = (
-            Reservation.objects.confirmadas()
+            Reservation.objects.activas()
             .values("check_in", "check_out")
             .order_by("check_in")
         )
