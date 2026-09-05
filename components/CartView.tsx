@@ -2,16 +2,38 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTransition } from "react";
+import { toast } from "sonner";
 import { useCart } from "@/lib/CartContext";
 import CartItemRow from "@/components/CartItemRow";
+import { checkoutCartServices } from "@/app/actions/checkout";
+import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
 
 export default function CartView() {
   const router = useRouter();
   const { items, isLoading, removeFromCart, clearCart, totalPrice } = useCart();
+  const [isProcessing, startTransition] = useTransition();
 
   function handleCheckout() {
-    clearCart();
-    router.push("/pago-exitoso");
+    startTransition(async () => {
+      const toastId = toast.loading("Procesando pago…");
+      const result = await checkoutCartServices(items);
+
+      if ("error" in result) {
+        toast.error(result.error, {
+          id: toastId,
+          action:
+            result.error === RESERVATION_REQUIRED_ERROR
+              ? { label: "Reservar estadía", onClick: () => router.push("/reservar") }
+              : undefined,
+        });
+        return;
+      }
+
+      toast.success("Servicios pagados correctamente.", { id: toastId });
+      clearCart();
+      router.push("/pago-exitoso");
+    });
   }
 
   if (isLoading) {
@@ -47,8 +69,9 @@ export default function CartView() {
 
       <button
         type="button"
+        disabled={isProcessing}
         onClick={handleCheckout}
-        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
+        className="rounded-full bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         Pagar servicios
       </button>

@@ -1,9 +1,13 @@
-import type { FareOption, FareType } from "@/lib/mock-data";
+type FareTypeOption = {
+  id: string;
+  name: string;
+  surcharge_percentage: number;
+};
 
 type PricingOptionsProps = {
-  options: FareOption[];
-  selected: FareType;
-  onSelect: (value: FareType) => void;
+  options: FareTypeOption[];
+  selected: string;
+  onSelect: (value: string) => void;
 };
 
 export default function PricingOptions({ options, selected, onSelect }: PricingOptionsProps) {
@@ -28,14 +32,13 @@ export default function PricingOptions({ options, selected, onSelect }: PricingO
           />
           <span>
             <span className="block text-sm font-semibold text-neutral-900">
-              {option.title}
-              {option.surchargePercent > 0 && (
+              {option.name}
+              {option.surcharge_percentage > 0 && (
                 <span className="ml-2 font-normal text-neutral-500">
-                  (+{option.surchargePercent}%)
+                  (+{option.surcharge_percentage}%)
                 </span>
               )}
             </span>
-            <span className="block text-sm text-neutral-500">{option.description}</span>
           </span>
         </label>
       ))}

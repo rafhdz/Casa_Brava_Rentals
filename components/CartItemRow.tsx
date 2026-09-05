@@ -1,12 +1,12 @@
-import type { CartItem } from "@/lib/mock-data";
-import { formatSimulatedDate } from "@/lib/mock-data";
+import type { CartItem } from "@/lib/cart-types";
+import { formatSimulatedDate, formatTimeSlot } from "@/lib/format";
 
 function renderTitle(item: CartItem): string {
   switch (item.serviceType) {
     case "spa":
       return `Masaje con ${item.details.masseuseName}`;
     case "comida":
-      return `${item.details.mealTypeLabel} — ${item.details.menuOptionName}`;
+      return `${item.details.mealType} — ${item.details.menuOptionName}`;
     case "vinos":
       return "Pedido de vinos";
   }
@@ -15,7 +15,7 @@ function renderTitle(item: CartItem): string {
 function renderDetails(item: CartItem): string {
   switch (item.serviceType) {
     case "spa":
-      return `${formatSimulatedDate(item.details.day)} · ${item.details.time}`;
+      return `${formatSimulatedDate(item.details.day)} · ${formatTimeSlot(item.details.time)}`;
     case "comida": {
       const guests = item.details.guests;
       return `${formatSimulatedDate(item.details.day)} · ${guests} persona${guests !== 1 ? "s" : ""}`;

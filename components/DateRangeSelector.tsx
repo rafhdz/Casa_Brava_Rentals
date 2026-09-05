@@ -1,15 +1,22 @@
 "use client";
 
-import { format, parseISO, startOfToday } from "date-fns";
+import { useMemo } from "react";
+import { format, parseISO, startOfToday, subDays } from "date-fns";
 import { es } from "date-fns/locale";
-import type { DateRange } from "react-day-picker";
+import type { DateRange, Matcher } from "react-day-picker";
 import Calendar from "@/components/Calendar";
+
+type BookedRange = {
+  check_in: string;
+  check_out: string;
+};
 
 type DateRangeSelectorProps = {
   checkIn: string;
   checkOut: string;
   onCheckInChange: (value: string) => void;
   onCheckOutChange: (value: string) => void;
+  bookedRanges: BookedRange[];
 };
 
 function formatLong(isoDate: string): string {
@@ -21,11 +28,27 @@ export default function DateRangeSelector({
   checkOut,
   onCheckInChange,
   onCheckOutChange,
+  bookedRanges,
 }: DateRangeSelectorProps) {
   const today = startOfToday();
   const selectedRange: DateRange | undefined = checkIn
     ? { from: parseISO(checkIn), to: checkOut ? parseISO(checkOut) : undefined }
     : undefined;
+
+  // Intervalo semi-abierto [check_in, check_out): el día de check_out de una
+  // reserva activa (pendiente o confirmada) NO se deshabilita, porque un
+  // huésped nuevo puede hacer check-in ese mismo día (misma regla de
+  // solapamiento que aplica el alta de reservación del backend). Por eso el
+  // rango deshabilitado en el calendario termina un día antes del check_out
+  // real (subDays(checkOut, 1)), no en el check_out mismo.
+  const disabledBookedRanges: Matcher[] = useMemo(
+    () =>
+      bookedRanges.map((range) => ({
+        from: parseISO(range.check_in),
+        to: subDays(parseISO(range.check_out), 1),
+      })),
+    [bookedRanges]
+  );
 
   function handleSelect(range: DateRange | undefined) {
     onCheckInChange(range?.from ? format(range.from, "yyyy-MM-dd") : "");
@@ -54,7 +77,8 @@ export default function DateRangeSelector({
           mode="range"
           selected={selectedRange}
           onSelect={handleSelect}
-          disabled={{ before: today }}
+          disabled={[{ before: today }, ...disabledBookedRanges]}
+          excludeDisabled
           defaultMonth={selectedRange?.from ?? today}
           numberOfMonths={1}
         />
