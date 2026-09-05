@@ -6,6 +6,10 @@ import { useAuth } from "@/lib/AuthContext";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// La traducción de los errores de autenticación vive ahora en la Server Action
+// (app/actions/auth.ts): es quien habla con SimpleJWT y la única que ve el
+// mensaje crudo del backend. Aquí solo se muestra lo que devuelve.
+
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
@@ -13,8 +17,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
     const trimmedEmail = email.trim();
@@ -41,9 +46,17 @@ export default function LoginPage() {
 
     if (hasError) return;
 
-    // Mock: simula un login exitoso. La validación real llegará con Supabase Auth.
-    const sessionUser = login(trimmedEmail);
-    router.push(sessionUser.rol === "admin" ? "/admin" : "/");
+    setIsSubmitting(true);
+    const { error, role } = await login(trimmedEmail, password);
+
+    if (error) {
+      setIsSubmitting(false);
+      setPasswordError(error);
+      return;
+    }
+
+    router.push(role === "admin" ? "/admin" : "/");
+    router.refresh();
   }
 
   return (
@@ -106,9 +119,10 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
+            disabled={isSubmitting}
+            className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Ingresar
+            {isSubmitting ? "Ingresando…" : "Ingresar"}
           </button>
         </form>
       </div>

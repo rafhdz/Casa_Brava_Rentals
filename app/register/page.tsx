@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { registerAction } from "@/app/actions/auth";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
 
-// Ladas de ejemplo para el prototipo — no vive en lib/mock-data.ts porque no es un dato de
-// negocio (precio/amenidad/servicio), es configuración fija del propio input de teléfono.
+// Ladas de ejemplo para el prototipo — no es un dato de negocio (precio/amenidad/servicio)
+// que deba vivir en la base de datos, es configuración fija del propio input de teléfono.
 const COUNTRY_CODES = [
   { dial: "+52", label: "México (+52)" },
   { dial: "+1", label: "USA/Canadá (+1)" },
@@ -21,6 +23,10 @@ const inputClassName = (hasError: boolean) =>
       : "border-neutral-200 focus:ring-neutral-900"
   }`;
 
+// Los mensajes de error los redacta el backend (correo duplicado, contraseña
+// demasiado común o corta, etc.) y llegan ya en español desde la Server
+// Action, así que aquí no hay tabla de traducción: se muestran tal cual.
+
 export default function RegisterPage() {
   const router = useRouter();
 
@@ -30,23 +36,23 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [countryCode, setCountryCode] = useState(COUNTRY_CODES[0].dial);
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [nombreError, setNombreError] = useState<string | null>(null);
   const [apellidoPaternoError, setApellidoPaternoError] = useState<string | null>(null);
   const [apellidoMaternoError, setApellidoMaternoError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const [success, setSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!success) return;
-    const timer = setTimeout(() => router.push("/login"), 2000);
-    return () => clearTimeout(timer);
-  }, [success, router]);
-
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setFormError(null);
 
     const trimmedNombre = nombre.trim();
     const trimmedApellidoPaterno = apellidoPaterno.trim();
@@ -69,12 +75,10 @@ export default function RegisterPage() {
       setApellidoPaternoError(null);
     }
 
-    if (!trimmedApellidoMaterno) {
-      setApellidoMaternoError("El apellido materno es obligatorio.");
-      hasError = true;
-    } else {
-      setApellidoMaternoError(null);
-    }
+    // Apellido materno es opcional (coincide con `apellido_materno` nullable
+    // en profiles) — a diferencia de nombre/apellido paterno, no se valida
+    // como obligatorio.
+    setApellidoMaternoError(null);
 
     if (!trimmedEmail) {
       setEmailError("El correo electrónico es obligatorio.");
@@ -93,11 +97,54 @@ export default function RegisterPage() {
       setPhoneError(null);
     }
 
+    if (!password) {
+      setPasswordError("La contraseña es obligatoria.");
+      hasError = true;
+    } else if (password.length < MIN_PASSWORD_LENGTH) {
+      setPasswordError(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+      hasError = true;
+    } else {
+      setPasswordError(null);
+    }
+
+    if (!confirmPassword) {
+      setConfirmPasswordError("Confirma tu contraseña.");
+      hasError = true;
+    } else if (confirmPassword !== password) {
+      setConfirmPasswordError("Las contraseñas no coinciden.");
+      hasError = true;
+    } else {
+      setConfirmPasswordError(null);
+    }
+
     if (hasError) return;
 
-    // Mock: no se guarda en mockUsers ni en la sesión — solo simula el registro exitoso.
-    // La creación real de cuentas llegará con Supabase Auth (ver CLAUDE.md).
-    setSuccess(true);
+    setIsSubmitting(true);
+
+    // La cuenta y su perfil son una sola fila en el backend, así que se crean
+    // en una sola petición: ya no hay un segundo insert que pueda fallar y
+    // dejar un usuario a medias (con cuenta pero sin perfil) ocupando ese
+    // correo. La Server Action encadena además el login, para entrar directo
+    // sin pasar por /login. El rol siempre es `guest`: el endpoint de registro
+    // ni siquiera acepta el campo.
+    const result = await registerAction({
+      email: trimmedEmail,
+      password,
+      password_confirm: confirmPassword,
+      first_name: trimmedNombre,
+      apellido_paterno: trimmedApellidoPaterno,
+      apellido_materno: trimmedApellidoMaterno || null,
+      phone: `${countryCode} ${trimmedPhoneNumber}`,
+    });
+
+    if ("error" in result) {
+      setIsSubmitting(false);
+      setFormError(result.error);
+      return;
+    }
+
+    router.push("/");
+    router.refresh();
   }
 
   return (
@@ -113,14 +160,14 @@ export default function RegisterPage() {
       </div>
 
       <div className="mt-8 w-full rounded-2xl border border-neutral-200 bg-white p-8 shadow-lg">
-        {success && (
-          <p className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
-            Registro completado con éxito. Redirigiendo...
+        {formError && (
+          <p className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+            {formError}
           </p>
         )}
 
         <form onSubmit={handleSubmit} noValidate className="flex w-full flex-col gap-4">
-          <fieldset disabled={success} className="flex w-full flex-col gap-4">
+          <fieldset disabled={isSubmitting} className="flex w-full flex-col gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-sm font-medium text-neutral-700">Nombre(s)</span>
               <input
@@ -156,7 +203,9 @@ export default function RegisterPage() {
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-neutral-700">Apellido Materno</span>
+              <span className="text-sm font-medium text-neutral-700">
+                Apellido Materno <span className="font-normal text-neutral-400">(opcional)</span>
+              </span>
               <input
                 type="text"
                 autoComplete="additional-name"
@@ -220,11 +269,45 @@ export default function RegisterPage() {
               {phoneError && <p className="text-xs text-red-600">{phoneError}</p>}
             </div>
 
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-neutral-700">Contraseña</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (passwordError) setPasswordError(null);
+                }}
+                placeholder="••••••••"
+                className={inputClassName(!!passwordError)}
+              />
+              {passwordError && <p className="text-xs text-red-600">{passwordError}</p>}
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-neutral-700">Confirmar contraseña</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  if (confirmPasswordError) setConfirmPasswordError(null);
+                }}
+                placeholder="••••••••"
+                className={inputClassName(!!confirmPasswordError)}
+              />
+              {confirmPasswordError && (
+                <p className="text-xs text-red-600">{confirmPasswordError}</p>
+              )}
+            </label>
+
             <button
               type="submit"
               className="mt-2 rounded-full bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out enabled:hover:bg-neutral-700 enabled:active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {success ? "Redirigiendo..." : "Registrarse"}
+              {isSubmitting ? "Registrando…" : "Registrarse"}
             </button>
           </fieldset>
         </form>

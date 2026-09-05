@@ -1,184 +1,330 @@
-# Guía del proyecto — Casa Brava Rentals (Prototipo Visual)
+# Guía del proyecto — Casa Brava Rentals
 
-Este documento explica, en términos sencillos, cómo está organizado el código y dónde tocar cada cosa. Está pensado para cualquier persona del equipo que necesite editar el prototipo antes de la demo con el cliente.
+Guía práctica para el equipo: dónde vive cada cosa y qué archivo tocar para cambiarla. Para las convenciones técnicas y el porqué de cada decisión, ver [CLAUDE.md](CLAUDE.md). Para el detalle del backend, ver [backend/README.md](backend/README.md).
+
+---
 
 ## 1. Qué es esto
 
-Es el **esqueleto visual** del sistema de reservaciones de Casa Brava. Todo lo que ves navegando (fotos, precios, amenidades) son datos de prueba (mock). No hay conexión a base de datos ni pagos reales todavía — es solo para que el cliente valide la interfaz.
+Sistema de reservaciones para una casa privada de renta, de acceso exclusivo por invitación. Un huésped invitado inicia sesión, reserva su estadía, agrega servicios adicionales (spa, comida, vinos) y paga; un administrador gestiona usuarios, reservaciones y catálogos desde su propio panel.
+
+El proyecto son **dos aplicaciones separadas** que se comunican por HTTP:
+
+```
+┌──────────────────────────┐         ┌──────────────────────────┐
+│  Frontend                │  HTTP   │  Backend                 │
+│  Next.js 16 + React 19   │ ──────► │  Django 6.1 + DRF        │
+│  Tailwind CSS v4         │  JWT    │  PostgreSQL              │
+│  localhost:3000          │ ◄────── │  localhost:8000          │
+│  (raíz del repositorio)  │  JSON   │  (carpeta backend/)      │
+└──────────────────────────┘         └──────────────────────────┘
+```
+
+El frontend **no tiene base de datos propia**. Toda la información sale de la API del backend. Lo único que se guarda en el navegador es el carrito de servicios antes de pagarlo.
+
+Lo único todavía simulado es el **cobro**: el botón de pago lleva a una pantalla de éxito sin procesar dinero real.
+
+---
 
 ## 2. Cómo correrlo localmente
+
+Hacen falta **dos terminales**, una por aplicación. El frontend solo no sirve de mucho: sin el backend, las pantallas con datos fallan.
+
+### Antes de empezar
+
+- **Node.js 20+** y npm.
+- **Python 3.12+** y [`uv`](https://docs.astral.sh/uv/).
+- **PostgreSQL** (recomendado). Con SQLite el proyecto arranca, pero se pierde la protección contra reservas duplicadas — ver `backend/README.md` §3.
+
+### Terminal 1 — Backend
+
+```bash
+cd backend
+uv sync
+cp .env.example .env
+uv run python manage.py migrate
+uv run python manage.py seed_demo
+uv run python manage.py runserver
+```
+
+| Comando | Para qué |
+| --- | --- |
+| `uv sync` | Instala las dependencias de Python |
+| `cp .env.example .env` | Crea la configuración local (ajustar credenciales de la base ahí) |
+| `migrate` | Crea las tablas |
+| `seed_demo` | Carga datos de desarrollo y el contenido del Home (fotos, amenidades, tarjetas de servicio). Se puede repetir sin duplicar |
+| `runserver` | Levanta la API en el puerto 8000 |
+
+Queda disponible:
+
+- API — <http://localhost:8000>
+- Documentación interactiva de la API — <http://localhost:8000/api/docs>
+- Admin de Django — <http://localhost:8000/admin> (requiere `uv run python manage.py createsuperuser`)
+
+### Terminal 2 — Frontend
 
 ```bash
 npm install
 npm run dev
 ```
 
-Luego abrir [http://localhost:3000](http://localhost:3000).
+Abrir <http://localhost:3000>.
+
+### Que las dos se vean entre sí
+
+- **Frontend** — archivo `.env.local` en la raíz:
+  ```
+  API_URL=http://localhost:8000
+  ```
+  Si falta, se asume ese mismo valor.
+- **Backend** — en `backend/.env`, `CORS_ALLOWED_ORIGINS` debe incluir `http://localhost:3000`.
+
+### Usuarios para probar
+
+`seed_demo` crea tres cuentas. Todas usan la contraseña **`changeme123`** (solo desarrollo):
+
+| Correo | Rol | Qué ve |
+| --- | --- | --- |
+| `admin@test.com` | Administrador | Panel completo en `/admin` |
+| `carlos.ruiz@example.com` | Propietario | Experiencia de huésped |
+| `maria.gomez@example.com` | Huésped | Experiencia de huésped |
+
+### Otros comandos
+
+| Comando | Qué hace |
+| --- | --- |
+| `npm run build` | Compila el frontend y verifica tipos |
+| `npm run lint` | Revisa el estilo del código del frontend |
+| `cd backend && uv run python manage.py test` | Corre las pruebas del backend |
+
+---
 
 ## 3. Estructura de carpetas
 
 ```
-app/
-  layout.tsx          → Layout global (Navbar + Footer envolviendo todas las páginas)
-  page.tsx             → Pantalla principal del huésped (home) — ruta protegida, envuelta en <ProtectedRoute>
-  login/page.tsx        → Pantalla de acceso restringido
-  register/page.tsx     → Pantalla de registro por invitación (demo) — sin enlace desde la UI, solo accesible directamente en /register
-  reservar/page.tsx     → Flujo de reservación (fechas, tarifa, resumen, pago) — ruta protegida, envuelta en <ProtectedRoute>
-  servicios/
-    spa/page.tsx          → Flujo de reserva de SPA/Masajes — ruta protegida, envuelta en <ProtectedRoute>
-    comida/page.tsx        → Flujo de reserva de Comida — ruta protegida, envuelta en <ProtectedRoute>
-    vinos/page.tsx          → Flujo de compra del Paquete de Vinos — ruta protegida, envuelta en <ProtectedRoute>
-  carrito/page.tsx       → Carrito de servicios adicionales (listado, eliminar, total, pagar) — ruta protegida, envuelta en <ProtectedRoute>
-  pago-exitoso/page.tsx → Pantalla estática de confirmación de pago (reutilizada por /reservar y /carrito)
-  admin/page.tsx        → Dashboard de administración (usuarios y reservaciones) — sin protección de ruta
-  perfil/page.tsx       → Vista de perfil del usuario con sesión activa — protegida con su propia redirección inline
-
-components/
-  Navbar.tsx            → Barra superior (logo + Carrito/Perfil/Iniciar sesión/Cerrar sesión según la sesión)
-  Footer.tsx            → Pie de página
-  ProtectedRoute.tsx     → Envoltorio cliente que exige sesión activa; redirige a /login si no la hay
-  BackButton.tsx          → Botón "← Volver" (useRouter().back()), usado en las vistas de servicios, /reservar y /carrito
-  Calendar.tsx            → Wrapper delgado sobre `react-day-picker` con el tema Tailwind del proyecto ya aplicado (classNames, ícono de Chevron con lucide-react, locale español) — usado por DateRangeSelector, SpaBookingForm y FoodBookingForm
-  Carousel.tsx          → Carrusel de fotos de la propiedad
-  AmenitiesList.tsx      → Lista de amenidades con íconos
-  ServiceCard.tsx         → Tarjeta individual de un servicio adicional, con botón "Reservar" hacia /servicios/<id>
-  DateRangeSelector.tsx   → Selector de fecha de llegada/salida
-  PricingOptions.tsx      → Radio buttons de tipo de tarifa
-  BookingSummary.tsx      → Desglose de cobro (noches + recargo + depósito)
-  UsersTable.tsx          → Tabla de usuarios invitados (dashboard admin)
-  ReservationsTable.tsx   → Tabla de reservaciones (dashboard admin)
-  SpaBookingForm.tsx      → Formulario de reserva de SPA (masajista → día → hora)
-  FoodBookingForm.tsx     → Formulario de reserva de Comida (día → tiempo de comida → menú → personas)
-  WineBookingForm.tsx     → Formulario de compra de vinos (botellas individuales + paquete de 4)
-  AddedToCartBanner.tsx   → Banner de confirmación ("agregado al carrito" + link a /carrito), compartido por los 3 formularios
-  CartView.tsx            → Contenido interactivo de /carrito (listado, eliminar, total, pagar)
-  CartItemRow.tsx          → Fila individual del carrito, formatea los detalles según el tipo de servicio
-
-lib/
-  mock-data.ts          → TODOS los datos de prueba: fotos, amenidades, servicios, precios, usuarios, reservaciones y disponibilidad de spa/comida/vinos
-  AuthContext.tsx       → Estado global de sesión mockeada (Context + localStorage)
-  CartContext.tsx       → Estado global del carrito de servicios adicionales (Context + localStorage)
+Casa_Brava_Rentals/
+├── app/                          Rutas del frontend (App Router)
+│   ├── layout.tsx                Layout raíz: Navbar, Footer, sesión y carrito
+│   ├── page.tsx                  Home (carrusel, amenidades, servicios)
+│   ├── globals.css               Estilos base y tokens de Tailwind
+│   ├── login/page.tsx            Inicio de sesión
+│   ├── register/page.tsx         Alta de huésped
+│   ├── perfil/page.tsx           Datos de la sesión y cerrar sesión
+│   ├── reservar/page.tsx         Reservar la estadía
+│   ├── carrito/page.tsx          Carrito de servicios adicionales
+│   ├── pago-exitoso/page.tsx     Confirmación (pago simulado)
+│   ├── servicios/
+│   │   ├── spa/page.tsx          Reservar sesión de spa
+│   │   ├── comida/page.tsx       Reservar servicio de cocina
+│   │   └── vinos/page.tsx        Pedido de vinos
+│   ├── admin/
+│   │   ├── page.tsx              Panel: usuarios invitados
+│   │   ├── actions.ts            Crear/editar/eliminar usuarios
+│   │   ├── reservations/
+│   │   │   ├── page.tsx          Panel: reservaciones
+│   │   │   └── actions.ts        CRUD de reservaciones
+│   │   └── catalogos/
+│   │       ├── page.tsx          Panel: tarifas, masajistas, menús y vinos
+│   │       └── actions.ts        CRUD de los cuatro catálogos
+│   └── actions/
+│       ├── auth.ts               Iniciar sesión, registrarse, cerrar sesión
+│       └── checkout.ts           Pagar la estadía y los servicios
+│
+├── components/                   Componentes reutilizables (ver §4)
+│
+├── lib/
+│   ├── api/                      ⭐ Toda la comunicación con el backend
+│   │   ├── config.ts             URL de la API y nombres de cookies
+│   │   ├── types.ts              Tipos de todo lo que devuelve la API
+│   │   ├── client.ts             Petición HTTP, errores y paginación
+│   │   ├── jwt.ts                Lectura de los datos del token
+│   │   ├── session.ts            Cookies de sesión
+│   │   └── server.ts             Punto de entrada desde el servidor
+│   ├── AuthContext.tsx           Sesión disponible para los componentes
+│   ├── CartContext.tsx           Carrito (navegador)
+│   ├── cart-types.ts             Tipos del carrito
+│   ├── checkout-errors.ts        Mensaje compartido servidor/cliente
+│   ├── reservations.ts           Reservación activa más reciente del huésped
+│   └── format.ts                 Formato de fechas, horas y dinero
+│
+├── middleware.ts                 Protección de rutas y refresco de sesión
+├── public/                       Imágenes e íconos
+│   ├── images/                   Fotos de la casa y de los servicios
+│   └── icons/                    Íconos de amenidades y del sistema
+│
+└── backend/                      Aplicación Django (ver backend/README.md)
+    ├── casabrava_core/           Configuración, rutas y errores de la API
+    ├── usuarios/                 Perfiles y autenticación
+    ├── propiedades/              Configuración, tarifas y contenido del Home
+    ├── servicios/                Catálogos y disponibilidad
+    ├── proveedores/              Masajistas
+    ├── reservaciones/            Estadías, servicios contratados y reglas
+    └── pagos/                    Movimientos de cobro
 ```
 
-Regla simple: **si algo se repite visualmente o tiene lógica propia, vive en `components/`. Si es solo texto o números de ejemplo, vive en `lib/mock-data.ts`.**
+---
 
-## 4. Dónde editar los componentes visuales principales
+## 4. Dónde editar los componentes visuales
 
-- **Carrusel de fotos**: la lógica de navegación (flechas, puntos) está en [components/Carousel.tsx](components/Carousel.tsx). Usa `<Image>` de `next/image` (`fill` + `object-contain` + `sizes`, `priority` solo en la primera foto) sobre los archivos reales servidos desde `public/images/`; la etiqueta (`label`) se muestra debajo de la foto. Cada objeto `Photo` en `lib/mock-data.ts` requiere un campo `url` (ruta pública de la imagen, ej. `/images/jardin_1.jpeg`) además de `id` y `label`.
-  - **Auto-avance**: un `useEffect` con `setInterval` avanza a la siguiente foto cada 4000 ms (`AUTO_ROTATE_INTERVAL_MS`), limpiando el intervalo en el cleanup del efecto. El efecto depende de `index`, así que cualquier interacción manual (flechas o puntos) reinicia el conteo de 4s — en la práctica, pausa temporalmente el auto-avance sin necesitar estado adicional.
-  - **Pausa al pasar el cursor**: el contenedor tiene `onMouseEnter`/`onMouseLeave` que activan/desactivan un estado `isPaused`; mientras está en `true`, el efecto de auto-avance no arranca ningún intervalo.
-  - **Transición entre fotos**: cada foto usa `key={photo.id}` en el `<Image>` para forzar su remonte al cambiar, combinado con una animación CSS `fade-in` (`@keyframes` definido en [app/globals.css](app/globals.css), aplicada vía `[animation:fade-in_700ms_ease-in-out]`) que produce el efecto de desvanecimiento al entrar cada foto nueva.
-  - **Zoom interactivo con paneo**: un estado `zoom` entre `1` y `3` se controla de tres formas — dos botones flotantes con íconos `<ZoomIn />`/`<ZoomOut />` de `lucide-react` en la esquina superior derecha (pasos de `0.5`, estilo `bg-neutral-900/70`), la rueda del mouse sobre la foto (pasos de `0.15`, capturada con un listener nativo `wheel` agregado en un `useEffect` con `{ passive: false }`, ya que React trata `onWheel` como pasivo por defecto y no deja hacer `preventDefault()` ahí — necesario para bloquear el scroll de la página mientras se hace zoom), y doble clic sobre la imagen (alterna entre `1` y un acercamiento rápido de `2.5` centrado en el punto del clic). El zoom se aplica como `transform: scale(zoom)` sobre el `<Image>` con `transition-transform duration-200 ease-out`. El contenedor de la foto mantiene `overflow-hidden` para que la imagen ampliada no se desborde. Con `zoom > 1`, mover el cursor sobre la foto (o hacer scroll) actualiza un estado `transformOrigin` (posición del cursor en porcentaje respecto al contenedor, calculado con `getBoundingClientRect()`) para desplazarse por la imagen ampliada. El cursor cambia según el estado: `cursor-zoom-in` en reposo, `cursor-grab` una vez ampliada la imagen, y `cursor-grabbing` mientras se mantiene presionado el botón del mouse (con un listener global de `mouseup` en un `useEffect` para no dejar el cursor "atorado" en grabbing si se suelta fuera del carrusel). Tanto el `zoom` como el `transformOrigin` se reinician a sus valores por defecto (`1` y `"50% 50%"`) cada vez que cambia la foto (manual o por auto-avance) — útil para examinar de cerca fotos verticales o con detalle. Las flechas (íconos `<ChevronLeft />`/`<ChevronRight />` de `lucide-react`) y los botones de zoom detienen la propagación de sus eventos de mouse (`stopPropagation`) para no disparar el paneo/zoom de la imagen que está debajo.
-- **Tarjetas de "Servicios Adicionales"** (Comida, SPA/Masajes, Paquete de Vinos): el diseño de cada tarjeta está en [components/ServiceCard.tsx](components/ServiceCard.tsx), que usa `<Image>` de `next/image` (contenedor `relative h-48` + `object-cover` + `sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"`, acorde a la grilla `sm:grid-cols-2 lg:grid-cols-3` en la que se muestran) en vez del placeholder gris. El contenido (título, descripción, precio) se edita en `lib/mock-data.ts`, no en el componente. Cada servicio en `ADDITIONAL_SERVICES` requiere también un campo `image` (ruta pública a la fotografía en `public/images/`, ej. `/images/servicio_comida_holder.jpg`) — sin este campo, `ServiceCard` no puede renderizar la tarjeta.
-- **Amenidades**: el diseño está en [components/AmenitiesList.tsx](components/AmenitiesList.tsx), que ahora itera primero por **categoría** (`AmenityCategory`, subtítulo tipo Airbnb) y luego por cada amenidad dentro de ella, mostrando su ícono `.svg` (tag `<img>` nativo, no `next/image`, porque el optimizador de imágenes de Next.js no sirve SVG sin habilitar `dangerouslyAllowSVG` en `next.config.ts`) seguido del texto. El contenido (categorías, amenidades y la ruta `url` de cada ícono) se edita en `lib/mock-data.ts`; los archivos `.svg` reales viven en `public/icons/amenities/<categoría>/`.
-- **Tablas del dashboard de administración**: el diseño de la tabla de usuarios está en [components/UsersTable.tsx](components/UsersTable.tsx) y el de reservaciones en [components/ReservationsTable.tsx](components/ReservationsTable.tsx). El contenido de ambas tablas se edita en `lib/mock-data.ts`, igual que el resto del sitio.
-- **Flujos de reserva de servicios adicionales** (SPA, Comida, Vinos): cada uno vive en su propio componente cliente — [components/SpaBookingForm.tsx](components/SpaBookingForm.tsx), [components/FoodBookingForm.tsx](components/FoodBookingForm.tsx), [components/WineBookingForm.tsx](components/WineBookingForm.tsx) — montado en su página bajo `app/servicios/<id>/page.tsx`. Todos calculan su propio precio y llaman a `addToCart()` (ver `lib/CartContext.tsx` más abajo) al enviar el formulario; el botón "Reservar" de cada `ServiceCard` en el Home enlaza directamente a `/servicios/<id>` porque el `id` de `ADDITIONAL_SERVICES` coincide con el nombre de la carpeta de ruta.
-- **Carrito** ([app/carrito/page.tsx](app/carrito/page.tsx)): la interactividad vive en [components/CartView.tsx](components/CartView.tsx) (listado vía [components/CartItemRow.tsx](components/CartItemRow.tsx), eliminar item, total y botón "Pagar servicios"), mientras que la página en sí sigue siendo un Server Component envuelto en `<ProtectedRoute>`, igual que el resto de rutas protegidas.
-- **Botón "Volver"**: [components/BackButton.tsx](components/BackButton.tsx) es un componente cliente minimalista (`useRouter().back()` de `next/navigation`, ícono `<ArrowLeft />` de `lucide-react` junto al texto) montado arriba del contenido en `app/servicios/spa/page.tsx`, `app/servicios/comida/page.tsx`, `app/servicios/vinos/page.tsx`, `app/reservar/page.tsx`, `app/carrito/page.tsx` y `app/perfil/page.tsx`, para que el usuario nunca quede "atrapado" en esas vistas de flujo. Al ser Server Components envueltos en `<ProtectedRoute>`, importar `<BackButton />` (Client Component) no obliga a convertir la página entera en cliente — `app/perfil/page.tsx` ya era Client Component desde antes, así que ahí simplemente se importa igual.
-- **Calendarios** ([components/Calendar.tsx](components/Calendar.tsx)): wrapper `"use client"` sobre `<DayPicker>` de `react-day-picker` (ver regla de librerías headless permitidas en [CLAUDE.md](CLAUDE.md)). No importa el CSS por defecto de la librería — en vez de eso, le pasa un `classNames` fijo que mapea cada pieza interna (`day`, `day_button`, `selected`, `range_start`/`range_middle`/`range_end`, `outside`, `disabled`, `today`, `nav`, `button_previous`/`button_next`, etc., ver el enum `UI`/`DayFlag`/`SelectionState` de la librería) a clases de Tailwind con la paleta `neutral` del proyecto (celdas `h-10 w-10`, encabezados de día en `text-neutral-500` centrados), y reemplaza el `Chevron` por defecto con uno propio que usa `<ChevronLeft />`/`<ChevronRight />` de `lucide-react`. El locale es español (`import { es } from "react-day-picker/locale"`). Un detalle importante para quien lo edite: react-day-picker puede activar varios modificadores a la vez sobre la misma celda (ej. un día puede ser `selected` **y** `range_start`, o `outside` **y** `disabled`, simultáneamente), y las clases de todos los modificadores activos terminan en el mismo `class="..."` del `<td>`. Cuando dos de esas clases fijan la misma propiedad CSS (color, fondo, radio) con la misma especificidad, gana la que Tailwind coloca más tarde en su hoja de estilos generada — un orden interno de la librería, no el orden en este objeto ni en el atributo `class`; se verificó empíricamente que ese orden **no** favorece a la clase semánticamente "más específica" (p.ej. `text-neutral-700` de `day` le ganaba a `text-neutral-300` de `disabled`, dejando los días deshabilitados con el mismo color que los habilitados). Por eso toda clase pensada para sobreescribir el estilo por defecto de `day` (`outside`, `disabled`, `range_start`/`range_end`/`range_middle`) usa `!important` en todas sus propiedades, no solo en la que a simple vista parece necesitarlo — incluyendo el bg/texto de `range_start`/`range_end`, necesario para que el check-in/check-out se siga leyendo bien cuando cae justo en un día "outside" (relleno del mes siguiente/anterior). `range_start`/`range_end` además fijan explícitamente el lado contrario a `-none` (no solo el lado propio a `-full`) para que el rango se vea como una píldora continua sin depender de si `rounded-full` (de `selected`, activo a la vez) gana en las esquinas que no se están forzando. Se usa en tres lugares, cada uno con su propia lógica de fechas (todas basadas en `date-fns` para convertir entre `string` ISO y `Date`, evitando el bug de `new Date("yyyy-MM-dd")` que en JS nativo se interpreta en UTC y puede desfasar un día según la zona horaria del navegador):
-  - **[components/DateRangeSelector.tsx](components/DateRangeSelector.tsx)** (usado en `/reservar`): `mode="range"`, con `disabled={{ before: today }}` para no permitir fechas pasadas. Mantiene exactamente el mismo contrato de props que antes (`checkIn`, `checkOut`, `onCheckInChange`, `onCheckOutChange`, todos `string` ISO) — convierte a `DateRange` de `react-day-picker` (`{ from, to }` con objetos `Date`) solo internamente, así que `app/reservar/page.tsx` no necesitó ningún cambio.
-  - **[components/SpaBookingForm.tsx](components/SpaBookingForm.tsx)** y **[components/FoodBookingForm.tsx](components/FoodBookingForm.tsx)**: `mode="single"`, reemplazando la fila de botones tipo "pill" que existía antes sobre `masseuse.availableDays` / `FOOD_AVAILABLE_DATES`. La disponibilidad simulada se expresa con `disabled={(date) => !availableDays.includes(format(date, "yyyy-MM-dd"))}` — el calendario completo se muestra, pero solo los días de esa lista quedan clicables; el resto aparece deshabilitado (`!text-neutral-300`). En `SpaBookingForm`, el calendario lleva `key={masseuse.id}` para remontarse (y así recalcular `defaultMonth`) cada vez que se elige otra masajista, ya que cada una tiene sus propias fechas disponibles — mismo patrón de remonte por `key` que ya usaba `Carousel.tsx` para las fotos. Debajo del calendario, ambos formularios muestran la fecha elegida formateada con `formatSimulatedDate` (la misma función que usa el resto de la app para estas fechas simuladas), no con `date-fns`.
-  - **Indicadores de disponibilidad (verde/rojo)**: `Calendar.tsx` exporta además `AVAILABILITY_MODIFIERS_CLASS_NAMES`, un objeto `{ available, disabled }` pensado para pasarse por instancia vía `modifiersClassNames` (no se aplica por defecto — `DateRangeSelector` y `FoodBookingForm` no lo usan y no cambian). La clave `available` es un modificador custom (se pasa también en `modifiers`, ej. `{ available: (date) => isDayAvailable(date) && format(date, "yyyy-MM-dd") !== day }`, excluyendo el día ya seleccionado para no competir visualmente con el estilo de `selected`) que pinta fondo `emerald-50`/texto `emerald-900` más un punto verde bajo el número vía pseudo-elemento `after:content-['']`. La clave `disabled` sobreescribe directamente `modifiersClassNames.disabled` (no crea un modificador custom paralelo) para repintar de rojo/tachado (`!text-red-300 !bg-red-50/50 line-through`) los mismos días que ya bloquea el `disabled` nativo, evitando que compitan dos clases por el mismo color en la misma celda. Hoy solo está integrado en **SpaBookingForm.tsx** como prueba de concepto sobre `masseuse.availableDays`; queda pendiente extenderlo a `FoodBookingForm.tsx` (`FOOD_AVAILABLE_DATES`) y a la disponibilidad de la casa cuando se pidan.
+| Quiero cambiar… | Archivo |
+| --- | --- |
+| Barra superior, logo, botón de carrito | [components/Navbar.tsx](components/Navbar.tsx) |
+| Pie de página | [components/Footer.tsx](components/Footer.tsx) |
+| Carrusel de fotos (zoom, auto-avance, flechas) | [components/Carousel.tsx](components/Carousel.tsx) |
+| Lista de amenidades | [components/AmenitiesList.tsx](components/AmenitiesList.tsx) |
+| Tarjetas de servicios del Home | [components/ServiceCard.tsx](components/ServiceCard.tsx) |
+| Calendario (estilos de celdas) | [components/Calendar.tsx](components/Calendar.tsx) |
+| Selección de fechas de la estadía | [components/DateRangeSelector.tsx](components/DateRangeSelector.tsx) |
+| Opciones de tarifa | [components/PricingOptions.tsx](components/PricingOptions.tsx) |
+| Resumen de cobro de la estadía | [components/BookingSummary.tsx](components/BookingSummary.tsx) |
+| Formulario de la estadía completo | [components/ReservarForm.tsx](components/ReservarForm.tsx) |
+| Formularios de spa / comida / vinos | `components/SpaBookingForm.tsx`, `FoodBookingForm.tsx`, `WineBookingForm.tsx` |
+| Aviso de "sin acceso" en `/servicios/*` (admin, o sin estadía activa) | [components/ServiceAccessNotice.tsx](components/ServiceAccessNotice.tsx) |
+| Carrito y sus renglones | [components/CartView.tsx](components/CartView.tsx), [components/CartItemRow.tsx](components/CartItemRow.tsx) |
+| Tabla de usuarios del panel | [components/UsersTable.tsx](components/UsersTable.tsx) |
+| Tabla de reservaciones del panel | [components/ReservationsTable.tsx](components/ReservationsTable.tsx) |
+| Pestañas del panel (Usuarios / Reservaciones / Catálogos) | [components/AdminNav.tsx](components/AdminNav.tsx) |
+| Qué campos y textos tiene cada catálogo del panel | [components/CatalogsView.tsx](components/CatalogsView.tsx) |
+| Tabla y modales genéricos de un catálogo | [components/CatalogTable.tsx](components/CatalogTable.tsx) |
+| Botón "Volver" | [components/BackButton.tsx](components/BackButton.tsx) |
 
-## 5. Dónde están los datos mockeados (para editar antes de la demo)
+**Estilo general:** todo es Tailwind CSS v4 escrito directamente en las clases. No hay archivo `tailwind.config.js`; los tokens se definen con `@theme` en [app/globals.css](app/globals.css). La paleta es escala de grises (`neutral-*`) con negro para los botones principales, y el diseño se escribe **mobile-first**.
 
-Todo está en un único archivo: **[lib/mock-data.ts](lib/mock-data.ts)**. Ahí se puede cambiar sin tocar ningún componente:
+---
 
-| Qué quieres cambiar | Variable en `mock-data.ts` |
-|---|---|
-| Fotos del carrusel (cantidad, etiquetas y `url` del archivo en `public/images/`) | `PROPERTY_PHOTOS` |
-| Amenidades de la casa (categorías y, dentro de cada una, sus amenidades con `url` al ícono `.svg`) | `AMENITIES` |
-| Servicios adicionales (Comida, SPA, Vinos), incluyendo la `image` de cada uno | `ADDITIONAL_SERVICES` |
-| Masajistas de SPA (nombre, días y horarios disponibles simulados) y precio de sesión | `SPA_MASSEUSES`, `SPA_SESSION_PRICE` |
-| Tiempos de comida y menús disponibles por tiempo (con precio por persona) | `MEAL_TYPES`, `FOOD_MENU_OPTIONS` |
-| Días disponibles simulados para reservar comida | `FOOD_AVAILABLE_DATES` |
-| Botellas de vino individuales disponibles y el paquete de 4 vinos | `WINE_BOTTLES`, `WINE_PACKAGE` |
-| Tipos de tarifa (Estándar / Flexible) y su recargo | `FARE_OPTIONS` |
-| Precio por noche y depósito de garantía | `PRICING_CONFIG` |
-| Usuarios del panel de administración (nombre, email, rol, estado) | `mockUsers` |
-| Reservaciones del panel de administración (huésped, fechas, monto, estado) | `mockReservations` |
+## 5. Dónde editar el contenido (todo vive en el backend)
 
-Ejemplo: para cambiar el precio por noche de $250 a $300, solo hay que editar `nightlyRate` dentro de `PRICING_CONFIG` en ese archivo. El resumen de cobro en la página de reservación se recalcula solo.
+Ningún texto, precio ni imagen de negocio está escrito en el código del frontend: todo sale de la base de datos. Cuatro catálogos ya se editan desde el propio panel; el resto todavía se edita en el **admin de Django** (<http://localhost:8000/admin>) o directamente en la base.
 
-Para agregar un nuevo usuario o una nueva reservación de prueba, basta con agregar un objeto más al array `mockUsers` o `mockReservations` en `lib/mock-data.ts` — las tablas del panel de administración se actualizan automáticamente.
+| Contenido | Dónde se edita | Dónde se ve |
+| --- | --- | --- |
+| **Tipos de tarifa y su recargo** | **`/admin/catalogos` → Tipos de tarifa** | `/reservar` y panel |
+| **Masajistas** | **`/admin/catalogos` → Masajistas** | `/servicios/spa` |
+| **Menús y precio por persona** | **`/admin/catalogos` → Menús** | `/servicios/comida` |
+| **Vinos (precio y existencias)** | **`/admin/catalogos` → Vinos** | `/servicios/vinos` |
+| Fotos del carrusel | Django: Fotos de la propiedad | Home |
+| Amenidades y sus categorías | Django: Amenidades / Categorías de amenidades | Home |
+| Tarjetas de servicios adicionales | Django: Información de servicios adicionales | Home |
+| Tarifa por noche y depósito | Django: Configuración de la propiedad | `/reservar` y panel |
+| Días y horarios de spa | Django: Disponibilidad de spa | `/servicios/spa` |
+| Días con servicio de cocina | Django: Disponibilidad de comida | `/servicios/comida` |
+| Paquetes de vinos | Django: Paquetes de vinos | `/servicios/vinos` |
 
-**Estructura de `AMENITIES`**: dejó de ser una lista plana de amenidades para ser un arreglo de categorías (`AmenityCategory[]`). Cada categoría tiene `id`, `category` (el subtítulo visible, ej. "Cocina y comedor") y `items: Amenity[]`; cada `Amenity` tiene `id`, `label` y `url` (ruta pública al ícono `.svg`, ej. `/icons/amenities/cocina/fridge.svg`). Para agregar una amenidad nueva, primero colocar su ícono en `public/icons/amenities/<categoría>/` y luego referenciarlo desde `url` en el `items` correspondiente — si dos amenidades no tienen un ícono dedicado (ej. "congelador" y "refrigerador"), es válido que compartan el mismo archivo `.svg`.
+`seed_demo` **sí carga el contenido del Home** (60 fotos, 11 categorías con 28 amenidades y las 3 tarjetas de servicio), así que una base recién sembrada renderiza el carrusel y las listas del Home con este contenido curado.
 
-**Íconos del sistema**: los botones "Carrito", "Perfil" y "Cerrar sesión" en [components/Navbar.tsx](components/Navbar.tsx), la flecha de [components/BackButton.tsx](components/BackButton.tsx) y los controles de [components/Carousel.tsx](components/Carousel.tsx) (flechas de navegación, zoom) ahora usan componentes de **`lucide-react`** (`<ShoppingCart />`, `<User />`, `<LogOut />`, `<ArrowLeft />`, `<ChevronLeft />`/`<ChevronRight />`, `<ZoomIn />`/`<ZoomOut />`) en vez de archivos `.svg` — ver la regla correspondiente en [CLAUDE.md](CLAUDE.md). El texto de cada botón se sigue conservando accesible con `sr-only`/`aria-label` para lectores de pantalla. El logo (`/icons/system/logo.svg`) es la excepción: sigue siendo un `<img>` nativo apuntando a [public/icons/system/](public/icons/system/), porque es la marca de la casa, no un ícono genérico de interfaz que `lucide-react` pueda reemplazar. Los demás `.svg` de esa carpeta (`cart.svg`, `profile.svg`, `logout.svg`) quedan sin usar en el código, pero no se borraron del repo.
+**Imágenes:** los archivos viven en `public/images/` y `public/icons/`. En la base solo se guarda la ruta (por ejemplo `/images/jardin_1.jpeg`). Para agregar una foto: copiar el archivo a `public/images/` y crear el registro con esa ruta.
 
-**Íconos de amenidades** ([public/icons/amenities/](public/icons/amenities/)): a diferencia de los íconos de sistema de arriba, estos **siguen usando el formato estático `.svg` + `<img>` nativo** en [components/AmenitiesList.tsx](components/AmenitiesList.tsx) — es una decisión intencional (ver CLAUDE.md), no un descuido: son ilustraciones curadas y propias de la casa (cocina, alberca, etc.), no íconos genéricos de interfaz, y no tienen equivalente razonable en `lucide-react`.
+---
 
-**Fechas simuladas de disponibilidad**: `SPA_MASSEUSES[].availableDays` y `FOOD_AVAILABLE_DATES` son fechas ISO (ej. `"2026-09-04"`), no un rango dinámico — para la demo, alargar o mover estas fechas basta con editar los arreglos directamente en `lib/mock-data.ts`. Se muestran en la UI ya formateadas (ej. "04 sept.") a través de la función `formatSimulatedDate(isoDate)`, exportada también desde `mock-data.ts`.
+## 6. Cómo funcionan las sesiones y los permisos
 
-## 6. Sistema de roles simulado, sesión y panel de administración
+### Inicio de sesión
 
-El prototipo distingue dos roles: **Huésped** (`guest`) y **Administrador** (`admin`). Sigue sin haber autenticación real (no hay verificación de contraseña ni backend), pero ahora sí existe una **sesión mockeada persistente**, manejada por [lib/AuthContext.tsx](lib/AuthContext.tsx):
+1. La persona envía correo y contraseña en `/login`.
+2. El frontend se los pasa al backend, que responde con un **token JWT**.
+3. El token se guarda en **cookies de tipo httpOnly**: el JavaScript de la página no puede leerlas, solo el servidor. Por eso el token no se puede robar con un script inyectado.
+4. En cada petición al backend, el servidor de Next.js adjunta el token en el encabezado `Authorization: Bearer <token>`.
 
-- `AuthProvider` envuelve toda la app en [app/layout.tsx](app/layout.tsx) y expone un usuario de sesión (`user`) a través de un React Context.
-- La sesión se guarda en `localStorage` (clave `casabrava_session_user`), por lo que **persiste al recargar la página o reiniciar el servidor de desarrollo** — no se pierde hasta que alguien cierra sesión o borra el storage del navegador.
-- El hook `useAuth()` (exportado desde el mismo archivo) da acceso a `user`, `isLoading`, `login(email)` y `logout()` desde cualquier componente cliente.
+El token caduca (60 minutos por defecto). Cuando eso pasa, [middleware.ts](middleware.ts) lo renueva solo, usando el token de refresco, sin que la persona note nada.
 
-**Validación del formulario de login** ([app/login/page.tsx](app/login/page.tsx)):
+### Rutas protegidas
 
-- El campo de correo se valida contra un formato básico (`nombre@dominio.tld`) antes de enviar el formulario. Entradas como `rafael` o `rafael@` muestran un mensaje de error en rojo debajo del input y no procesan el envío.
-- El campo de contraseña solo valida que no esté vacío (sigue sin comparar contra ninguna contraseña real).
-- El formulario usa `noValidate` para desactivar la validación nativa del navegador y mostrar siempre nuestros propios mensajes de error estilizados con Tailwind.
+[middleware.ts](middleware.ts) revisa la sesión **antes** de que la página se dibuje:
 
-**Cómo probarlo:**
+| Ruta | Requisito |
+| --- | --- |
+| `/` (Home) | Sesión activa |
+| `/reservar`, `/perfil`, `/carrito`, `/servicios/*` | Sesión activa |
+| `/admin` y `/admin/*` | Sesión activa **y** rol de administrador |
+| `/login`, `/register` | Abiertas — son la puerta de entrada |
 
-1. Ir a [/login](app/login/page.tsx).
-2. Escribir un correo con formato inválido (ej. `rafael@`) y dar clic en "Ingresar" → debe aparecer un mensaje de error en rojo bajo el campo, sin redirigir.
-3. Con el correo `admin@test.com` (cualquier contraseña no vacía), el login busca ese usuario en `mockUsers`, lo guarda como sesión activa y redirige a `/admin`.
-4. Con cualquier otro correo válido, se guarda una sesión de "Huésped" genérico con ese correo y redirige a `/` (vista de huésped).
-5. Recargar el navegador (o reiniciar `npm run dev`) y volver a entrar a la app: la sesión sigue activa porque vive en `localStorage`, no en memoria.
+Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin rol de administrador, `/admin` redirige al Home.
 
-**Navbar dinámico** ([components/Navbar.tsx](components/Navbar.tsx)): lee `useAuth()` para decidir qué mostrar — si hay sesión activa, muestra los botones de "Perfil" y "Cerrar sesión" como íconos (`/icons/system/profile.svg` y `/icons/system/logout.svg`, con texto accesible `sr-only` y `title` como tooltip); si no hay sesión, muestra el enlace de texto "Iniciar sesión", **excepto** cuando la ruta actual ya es `/login` (comparado con `usePathname()` de `next/navigation`) — ahí no tendría sentido mostrar un enlace a la misma pantalla en la que el usuario ya está. El ícono de "Carrito" (con su badge de `totalItems`) también se oculta condicionalmente: cuando `pathname.startsWith("/admin")` es `true`, el enlace `/carrito` no se renderiza, ya que el carrito de servicios adicionales pertenece a la experiencia de huésped y no aplica dentro del panel de administración. Al estar envuelto en el mismo contenedor `flex items-center gap-2 sm:gap-3` que "Perfil" y "Cerrar sesión", quitar el carrito del árbol no deja huecos — el `gap` se recalcula solo entre los íconos que sí se renderizan.
+### Roles
 
-**Pantalla de registro** ([app/register/page.tsx](app/register/page.tsx)): prototipo de registro pensado para llegar únicamente por una liga de invitación, por lo que **no** tiene ningún enlace desde el `Navbar` ni desde ningún otro menú — para la demo actual se visualiza entrando directamente a `/register`. Por eso la carpeta se llama `register` (en inglés) y no `registro`, rompiendo a propósito la convención de rutas en español del resto de `app/**` (ver CLAUDE.md), para que coincida con la URL pedida para la demo. Visualmente sigue el mismo patrón que `app/login/page.tsx` (mismo layout de tarjeta, mismos estilos de input/error, `noValidate` + validación propia). Pide Nombre(s), Apellido Paterno, Apellido Materno, Correo electrónico y Teléfono celular (este último como input compuesto: un `<select>` de lada — México +52, USA/Canadá +1, España +34, Argentina +54, definido localmente en la página y no en `lib/mock-data.ts` porque es configuración fija del input, no un dato de negocio — junto a un `<input type="tel">` para el número). Al enviar, valida que ningún campo esté vacío y que el correo tenga formato válido; con errores, cada campo muestra su mensaje en rojo debajo (mismo estilo que login). Si todo es válido, **no** guarda nada en `mockUsers` ni en la sesión de `AuthContext` — solo muestra un mensaje de éxito ("Registro completado con éxito. Redirigiendo...") dentro de la misma tarjeta, deshabilita el formulario (`<fieldset disabled>`) y redirige a `/login` después de 2 segundos (`setTimeout` dentro de un `useEffect` que depende de ese estado de éxito, con su propio cleanup). Queda pendiente conectar la creación real de la cuenta (Supabase Auth) y decidir si el registro debe iniciar sesión automáticamente o solo redirigir a `/login` como ahora.
+| Rol | Qué puede hacer |
+| --- | --- |
+| **Administrador** (`admin`) | Todo: gestionar usuarios y reservaciones |
+| **Propietario** (`holder`) | Ve la experiencia de huésped; en la API puede consultar todos los registros, pero no modificarlos |
+| **Huésped** (`guest`) | Reserva y consulta lo suyo |
 
-**Vista de Perfil** ([app/perfil/page.tsx](app/perfil/page.tsx)): incluye `<BackButton />` arriba del encabezado y un saludo personalizado ("Hola, {nombre}") en vez de un título estático. Muestra Nombre, Correo y Rol del usuario en sesión dentro de una sola tarjeta (`rounded-2xl`, `shadow-sm`, `divide-y`) que agrupa el bloque de avatar y la ficha de datos como secciones separadas por un divisor interno, en vez de dos tarjetas independientes. Si no hay ningún usuario en sesión, redirige automáticamente a `/login`.
+Quien se registra por su cuenta en `/register` siempre queda como **huésped**. Crear administradores o propietarios solo se puede desde el panel.
 
-**Rutas protegidas por sesión (`ProtectedRoute`)**: el Home (`/`) y el flujo de reservación (`/reservar`) ahora exigen sesión activa. La protección se implementa con [components/ProtectedRoute.tsx](components/ProtectedRoute.tsx), un componente `"use client"` que envuelve el contenido de la página: consume `useAuth()`, y si `!isLoading && !user` redirige a `/login`; mientras `isLoading` es `true` muestra un estado de carga breve, y si hay sesión renderiza `children` normalmente. Esto permite que `app/page.tsx` siga siendo un Server Component — solo el wrapper `<ProtectedRoute>` es cliente, no toda la página. `/admin` sigue sin este guard (ver sección 8).
+> Los permisos los decide **el backend** en cada petición. Lo que el frontend hace —ocultar botones, deshabilitar campos— es comodidad visual, no seguridad.
 
-**Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)):
+---
 
-- **Sección "Usuarios invitados"**: tabla con los datos de `mockUsers` (nombre, email, rol, estado) usando [components/UsersTable.tsx](components/UsersTable.tsx), que ahora es un Client Component (`"use client"`). El botón "Editar" de cada fila abre un modal interactivo (fondo `bg-black/40 backdrop-blur-sm`, panel `bg-white rounded-2xl shadow-2xl` con una transición de entrada vía `@keyframes modal-in` en [app/globals.css](app/globals.css)) con un formulario para editar nombre, correo, rol y estado del usuario seleccionado; cierra con "Cancelar", clic fuera del panel, o la tecla Escape. `UsersTable` mantiene su propio estado local de usuarios (`useState`, inicializado con la prop `users` que la página le pasa desde `mockUsers`), así que al guardar los cambios se reflejan de inmediato en la tabla — es solo en memoria del navegador, se pierde al recargar la página. Al enviar el formulario se llama a `handleSaveUser(updatedUser)`, una función `async` que ya está preparada para la integración futura: reemplazar la actualización de `setUsers` dentro de ella por la llamada real a Supabase (mutación/API) es el único cambio necesario — el modal, el formulario y el resto del componente no tendrían que tocarse. El comentario `// TODO: Integración con Supabase` dentro de esa función marca exactamente dónde hacerlo.
-- **Sección "Reservaciones"**: tabla con los datos de `mockReservations` usando [components/ReservationsTable.tsx](components/ReservationsTable.tsx), filtrando en la propia página (`app/admin/page.tsx`) para no mostrar las reservaciones con estado `pasada`.
-- Sigue sin tener ningún guard de ruta: es accesible por URL directa sin pasar por `/login`, incluso si `useAuth()` reporta que no hay sesión o que el rol no es `admin`.
+## 7. Los flujos principales, paso a paso
 
-## 7. Carrito de servicios adicionales
+### Reservar la estadía (`/reservar`)
 
-Además de la reservación de la estadía (`/reservar`), el prototipo tiene un flujo independiente para agregar servicios adicionales (SPA/Masajes, Comida, Paquete de Vinos) a un carrito y "pagarlos" por separado, manejado por [lib/CartContext.tsx](lib/CartContext.tsx):
+1. La página pide al backend las tarifas, la configuración de cobro y las fechas ya ocupadas.
+2. La persona elige fechas en el calendario (los rangos ocupados aparecen deshabilitados) y un tipo de tarifa.
+3. El resumen muestra: noches × tarifa + recargo + depósito.
+4. Al pulsar "Proceder al pago" se crea la reservación en el backend, que **recalcula el monto por su cuenta** y verifica que las fechas no choquen con otra reserva **activa** (pendiente o confirmada) — la reservación nueva nace en `pendiente`, así que ya cuenta como ocupación del calendario para todos los demás.
+5. Si todo sale bien, va a `/pago-exitoso`. Si las fechas ya estaban tomadas, aparece un aviso y no se crea nada.
 
-- `CartProvider` envuelve la app en [app/layout.tsx](app/layout.tsx) (anidado dentro de `AuthProvider`) y expone el carrito a través de un React Context.
-- El carrito se guarda en `localStorage` (clave `casabrava_cart`), igual que la sesión: **persiste al recargar la página**.
-- El hook `useCart()` da acceso a `items`, `isLoading`, `addToCart(item)`, `removeFromCart(id)`, `clearCart()`, `totalPrice` y `totalItems` desde cualquier componente cliente.
-- Cada `CartItem` es una unión discriminada por `serviceType` (`"spa" | "comida" | "vinos"`), con los detalles específicos tipados como `SpaReservation`, `FoodReservation` o `WineOrder` (todos en `lib/mock-data.ts`).
+### Agregar servicios y pagarlos (`/servicios/*` → `/carrito`)
 
-**Cómo probar el flujo completo:**
+1. Cada página de servicio (`/servicios/spa`, `/servicios/comida`, `/servicios/vinos`) primero revisa quién entra:
+   - Si es **administrador**, no ve el formulario: aparece un aviso de que esa vista es solo para huéspedes.
+   - Si es huésped **sin una estadía activa** (pendiente o confirmada), tampoco ve el formulario: aparece el mismo aviso "Primero debes reservar tu estadía…" con un atajo a `/reservar`, antes de que la persona pierda tiempo llenando nada.
+   - Solo si hay una estadía activa se muestra el formulario.
+2. En spa y comida, el calendario **solo habilita los días de esa estadía** (entre `check_in` y `check_out`, sin contar el día de salida) — no todos los días con disponibilidad general. Vinos no tiene calendario, así que solo aplica el filtro de admin/estadía.
+3. Al elegir lo que se quiere y pulsar "Agregar al carrito", eso **solo guarda en el navegador**; todavía no se reserva nada.
+4. El carrito es propio de cada usuario: dos personas en la misma computadora no se mezclan.
+5. En `/carrito`, "Pagar servicios" envía todo al backend y lo asocia a la reservación activa más reciente de esa persona — la misma noción de "estadía activa" que ya filtró el calendario en el paso 1, así que lo que se ve ya reservable en el formulario es justo lo que el pago va a aceptar.
+6. Si algo falla a medio camino (por ejemplo, otro huésped tomó ese horario de spa un segundo antes), lo que ya se había creado en ese intento se deshace y el carrito se conserva para poder corregirlo.
 
-1. Desde el Home (`/`), dar clic en "Reservar" dentro de cualquier tarjeta de la sección "Servicios adicionales" → navega a `/servicios/spa`, `/servicios/comida` o `/servicios/vinos`.
-2. **SPA**: elegir una masajista → aparece el selector de día (fechas simuladas de esa masajista) → al elegir día aparece el selector de hora. Completar los tres pasos y dar clic en "Agregar al carrito".
-3. **Comida**: elegir día, tiempo de comida (Desayuno/Almuerzo/Cena) y tipo de menú (el precio es por persona); ajustar el número de personas con el contador y dar clic en "Agregar al carrito".
-4. **Vinos**: sumar botellas individuales con los contadores `+`/`−` y/o el contador del "Paquete de 4 vinos"; el total del pedido se recalcula en vivo. Dar clic en "Agregar al carrito".
-5. En cualquiera de los tres flujos, tras agregar aparece un banner de confirmación verde con un link "Ver carrito" ([components/AddedToCartBanner.tsx](components/AddedToCartBanner.tsx)) — el formulario permanece visible para seguir agregando servicios sin perder el progreso.
-6. El ícono de carrito en el Navbar ([components/Navbar.tsx](components/Navbar.tsx)) muestra un badge con la cantidad total de items (`useCart().totalItems`) y enlaza a `/carrito`.
-7. En [/carrito](app/carrito/page.tsx): revisar el listado (cada fila formatea sus propios detalles según `serviceType`, ver [components/CartItemRow.tsx](components/CartItemRow.tsx)), eliminar algún item con "Eliminar" y confirmar que el total se recalcula.
-8. Dar clic en "Pagar servicios" → vacía el carrito (`clearCart()`) y redirige a `/pago-exitoso`, sin procesar ningún cobro real (mismo patrón que el botón "Proceder al pago" de `/reservar`).
-9. Recargar el navegador en cualquier punto del flujo: el carrito y sus items persisten porque viven en `localStorage`.
+> Igual que en el resto del sistema, esto es ayuda de UX: el backend ya rechaza un servicio fuera de la estadía o sin ella (`RESERVATION_REQUIRED_ERROR`), y esta capa solo evita que la persona llegue a ese error después de llenar un formulario entero.
 
-## 8. Qué falta conectar al backend (próximos sprints)
+### Panel de usuarios (`/admin`)
 
-Esto es un prototipo de interfaz, así que lo siguiente **todavía no funciona de verdad** y queda pendiente:
+- Lista las cuentas con su rol y estado.
+- **Crear usuario**: la cuenta queda activa de inmediato con la contraseña temporal `changeme123`, que el administrador comparte con la persona.
+- **Editar**: cambia rol y estado.
+- **Eliminar**: pide confirmación.
+- Un administrador **no puede** cambiar su propio rol ni borrarse a sí mismo: sería la forma más rápida de dejar el panel sin acceso.
 
-- **Login** ([app/login/page.tsx](app/login/page.tsx)): valida formato de correo y que la contraseña no esté vacía, pero no verifica ninguna contraseña real contra un backend. Falta conectar autenticación real con roles reales (planeado: Supabase Auth).
-- **Sesión mockeada** ([lib/AuthContext.tsx](lib/AuthContext.tsx)): la "sesión" es un objeto guardado en `localStorage` del navegador, sin token, sin expiración y sin backend que la respalde. Cualquiera puede editarla manualmente desde las DevTools del navegador. Falta reemplazarla por sesiones reales de Supabase Auth (cookies/JWT).
-- **Protección de rutas**: `/admin` no está protegida por ningún guard de ruta — cualquiera que conozca la URL puede entrar directamente sin pasar por el login, incluso sin sesión o con rol `guest`. `/`, `/reservar` (vía `<ProtectedRoute>`) y `/perfil` (redirección inline) sí redirigen a `/login` si no hay sesión, pero es una redirección en el cliente (después de que la página ya cargó), no un guard real de servidor — no evita que el HTML/JS de la página llegue a cargarse brevemente antes de redirigir. Falta un guard de ruta real basado en sesión/rol (planeado: middleware de Next.js + Supabase Auth).
-- **Disponibilidad de fechas** ([app/reservar/page.tsx](app/reservar/page.tsx)): el selector de fechas no valida contra un calendario de disponibilidad real; solo calcula noches entre dos fechas.
-- **Pago** (botón "Proceder al pago"): redirige directo a la pantalla de éxito sin cobrar nada. Falta integrar un proveedor de pagos real (planeado: Stripe).
-- **Persistencia de la reservación**: no se guarda en ningún lado; al recargar la página se pierde todo. Falta una base de datos (planeado: Supabase).
-- **Panel de administración** ([app/admin/page.tsx](app/admin/page.tsx)): las tablas de usuarios y reservaciones son de solo lectura sobre datos mockeados; el botón "Editar" no hace nada. Falta conectar a Supabase para leer/escribir usuarios y reservaciones reales.
-- **Disponibilidad de SPA/Comida**: los días y horarios de `SPA_MASSEUSES` y `FOOD_AVAILABLE_DATES` son listas fijas en `mock-data.ts`, no un calendario real — no valida que un horario ya elegido por otro huésped deje de estar disponible.
-- **Carrito** ([lib/CartContext.tsx](lib/CartContext.tsx)): igual que la sesión mockeada, vive en `localStorage` del navegador sin backend que lo respalde. Falta persistirlo en Supabase (asociado al huésped) y, al "Pagar servicios" en `/carrito`, integrar Stripe en vez de solo vaciar el carrito y redirigir.
+### Panel de reservaciones (`/admin/reservations`)
 
-Para más detalle técnico sobre el stack y las convenciones de código, ver [CLAUDE.md](CLAUDE.md).
+- Tabla con huésped, fechas, tarifa, servicios contratados (íconos), monto y los dos estados.
+- **Dos estados independientes**: el de la reserva (`Pendiente`, `Confirmada`, `Cancelada`, `Finalizada`) y el del cobro (`Pendiente`, `Parcial`, `Completado`, `Reembolsado`). Se cambian por separado, para poder registrar un anticipo sobre una reserva todavía pendiente.
+- **Editar** abre el desglose de lo contratado (cada masaje, comida y vino con su importe) más estadía, subtotal de servicios y gran total.
+- **Crear** sugiere el monto a partir de fechas y tarifa, pero lo deja editable por si hay un descuento.
+- **Eliminar** pide doble confirmación. No borra de verdad: marca la reserva como eliminada y libera los horarios de spa, conservando el historial de lo contratado.
+- Confirmar una reserva vuelve a verificar que no choque con otra; si choca, se avisa y no se guarda.
+
+### Panel de catálogos (`/admin/catalogos`)
+
+Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masajistas**, **menús** y **vinos**. Antes solo se podía editar desde el admin de Django.
+
+- Cada pestaña es la misma tabla con sus propias columnas: crear, editar y eliminar, con confirmación de dos pasos para el borrado.
+- **Un borrado puede rebotar, y está bien que rebote.** Si una reservación ya usa esa tarifa, ese menú, ese vino o esa masajista, el servidor no deja borrarlo: hacerlo reescribiría lo que ya se cobró. Aparece un aviso explicándolo y no se borra nada.
+  - Para retirar de la oferta algo que ya tiene historial, la vía es **editarlo** — a una masajista se le pone estado *Inactiva*, y deja de ofrecerse sin perder sus sesiones pasadas.
+- Los servicios ya contratados **conservan el precio con el que se cobraron**. Cambiar un precio aquí afecta a lo que se contrate de ahora en adelante, nunca a lo ya vendido.
+- Lo que todavía **no** está en este panel: los paquetes de vinos y la disponibilidad (horarios de spa, días de cocina). Siguen en el admin de Django.
+
+---
+
+## 8. Cosas que conviene saber al tocar el código
+
+**Los precios llegan como texto, no como número.** El backend manda `"4500.00"` en vez de `4500` para no perder precisión con los decimales. Antes de sumar o multiplicar hay que convertirlos con `toNumber()` de [lib/format.ts](lib/format.ts); para mostrarlos, `formatMoney()`. La conversión se hace en la página, para que los componentes visuales sigan recibiendo números.
+
+**Las listas del backend vienen de 50 en 50.** Para traer una colección completa hay que usar `serverFetchAll` (no `serverFetch`), que va siguiendo las páginas. Si se lee solo la primera, faltan datos **sin ningún error visible** — por ejemplo, desaparecerían los días de spa más lejanos.
+
+**Los componentes del navegador no pueden llamar al backend.** El token está en una cookie que el navegador no puede leer. Todo acceso a datos ocurre en un Server Component (la página) o en una Server Action (`app/actions/`, `app/admin/actions.ts`).
+
+**Las reglas de negocio son del backend.** Fechas, choques de reservas, montos e inventario de spa se validan allá, dentro de una transacción. Lo que el frontend hace —deshabilitar fechas en el calendario, ocultar horarios ocupados— sirve para no hacer perder el tiempo, pero no es la protección real.
+
+**Cuidado con las fechas.** `new Date("2026-09-20")` se interpreta en horario universal y puede correrse un día. Usar `parseISO` de `date-fns`, o agregar la hora: `new Date("2026-09-20T00:00:00")`.
+
+---
+
+## 9. Qué falta
+
+| Pendiente | Estado |
+| --- | --- |
+| **Cobro real con Stripe** | El punto de enganche ya existe en el backend (`pagos.services.registrar_pago`). Falta conectar el proveedor y su webhook. Hoy el pago es simulado. |
+| **Vista de pagos en el panel** | El backend ya guarda cada movimiento de cobro por separado (anticipos, saldos, reembolsos), pero el panel todavía solo muestra el estado general de la reserva. |
+| **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. Los catálogos (tarifas, masajistas, menús y vinos) ya se administran desde `/admin/catalogos`; los paquetes de vinos siguen siendo la excepción. |

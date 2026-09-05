@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
-import type { Photo } from "@/lib/mock-data";
+import type { PropertyPhoto } from "@/lib/api/types";
+
+export type Photo = Pick<PropertyPhoto, "id" | "label" | "url">;
 
 const AUTO_ROTATE_INTERVAL_MS = 4000;
 const ZOOM_MIN = 1;
