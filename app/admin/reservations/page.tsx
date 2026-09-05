@@ -2,7 +2,7 @@ import { serverFetchAll } from "@/lib/api/server";
 import { toNumber } from "@/lib/format";
 import { getReservations } from "@/app/admin/reservations/actions";
 import ReservationsTable from "@/components/ReservationsTable";
-import BackButton from "@/components/BackButton";
+import AdminNav from "@/components/AdminNav";
 import type { FareType, PropertySettings, Usuario } from "@/lib/api/types";
 
 export default async function AdminReservationsPage() {
@@ -19,7 +19,7 @@ export default async function AdminReservationsPage() {
 
   return (
     <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
-      <BackButton />
+      <AdminNav />
 
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900">Reservaciones</h1>

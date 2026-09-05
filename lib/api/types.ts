@@ -63,6 +63,15 @@ export type MealType = "Desayuno" | "Almuerzo" | "Cena";
 /** Estados en los que una reservación ocupa el calendario y admite servicios. */
 export const ESTADOS_ACTIVOS: ReservationStatus[] = ["pendiente", "confirmada"];
 
+/**
+ * Los tres tiempos de comida, en el orden en que se ofrecen.
+ *
+ * El enum del backend ya viene en español, así que cada valor sirve también
+ * como label — no hay tabla de traducción. Alimenta los selects del catálogo
+ * de menús en `/admin/catalogos`.
+ */
+export const MEAL_TYPES: MealType[] = ["Desayuno", "Almuerzo", "Cena"];
+
 // ---------------------------------------------------------------------------
 // usuarios
 // ---------------------------------------------------------------------------

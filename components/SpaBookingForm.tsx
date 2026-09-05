@@ -31,9 +31,20 @@ export type SpaAvailabilitySlot = {
 export default function SpaBookingForm({
   masseuses,
   availability,
+  stayCheckIn,
+  stayCheckOut,
 }: {
   masseuses: MasseuseOption[];
   availability: SpaAvailabilitySlot[];
+  // Límites estrictos de la estadía activa del huésped ("yyyy-MM-dd"), no
+  // solo ayuda de UX: el backend ya rechaza un booking de spa fuera de la
+  // reservación, pero sin este límite el huésped llenaría el formulario
+  // entero antes de enterarse. Intervalo semi-abierto [check_in, check_out),
+  // igual que en DateRangeSelector: el día de salida no cuenta como noche de
+  // estadía. Comparación por string: de ancho fijo, ordena igual que la
+  // fecha real (ver CLAUDE.md).
+  stayCheckIn: string;
+  stayCheckOut: string;
 }) {
   const router = useRouter();
   const { addToCart } = useCart();
@@ -43,14 +54,20 @@ export default function SpaBookingForm({
 
   const masseuse = masseuses.find((m) => m.id === masseuseId) ?? null;
 
-  // Días distintos con al menos un bloque libre para la masajista elegida.
+  // Días distintos con al menos un bloque libre para la masajista elegida,
+  // acotados a los días de la estadía activa del huésped.
   const availableDays = useMemo(() => {
     if (!masseuseId) return [];
     const days = availability
-      .filter((slot) => slot.masseuse_id === masseuseId)
+      .filter(
+        (slot) =>
+          slot.masseuse_id === masseuseId &&
+          slot.available_date >= stayCheckIn &&
+          slot.available_date < stayCheckOut
+      )
       .map((slot) => slot.available_date);
     return [...new Set(days)];
-  }, [availability, masseuseId]);
+  }, [availability, masseuseId, stayCheckIn, stayCheckOut]);
 
   // Bloques de hora libres para (masajista, día). A diferencia del mapa
   // mockeado que existía antes —una sola lista de horas por masajista, igual

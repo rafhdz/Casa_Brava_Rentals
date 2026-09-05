@@ -6,7 +6,7 @@ Guía práctica para el equipo: dónde vive cada cosa y qué archivo tocar para 
 
 ## 1. Qué es esto
 
-Sistema de reservaciones para una casa privada de renta, de acceso exclusivo por invitación. Un huésped invitado inicia sesión, reserva su estadía, agrega servicios adicionales (spa, comida, vinos) y paga; un administrador gestiona usuarios y reservaciones desde su propio panel.
+Sistema de reservaciones para una casa privada de renta, de acceso exclusivo por invitación. Un huésped invitado inicia sesión, reserva su estadía, agrega servicios adicionales (spa, comida, vinos) y paga; un administrador gestiona usuarios, reservaciones y catálogos desde su propio panel.
 
 El proyecto son **dos aplicaciones separadas** que se comunican por HTTP:
 
@@ -120,9 +120,12 @@ Casa_Brava_Rentals/
 │   ├── admin/
 │   │   ├── page.tsx              Panel: usuarios invitados
 │   │   ├── actions.ts            Crear/editar/eliminar usuarios
-│   │   └── reservations/
-│   │       ├── page.tsx          Panel: reservaciones
-│   │       └── actions.ts        CRUD de reservaciones
+│   │   ├── reservations/
+│   │   │   ├── page.tsx          Panel: reservaciones
+│   │   │   └── actions.ts        CRUD de reservaciones
+│   │   └── catalogos/
+│   │       ├── page.tsx          Panel: tarifas, masajistas, menús y vinos
+│   │       └── actions.ts        CRUD de los cuatro catálogos
 │   └── actions/
 │       ├── auth.ts               Iniciar sesión, registrarse, cerrar sesión
 │       └── checkout.ts           Pagar la estadía y los servicios
@@ -141,6 +144,7 @@ Casa_Brava_Rentals/
 │   ├── CartContext.tsx           Carrito (navegador)
 │   ├── cart-types.ts             Tipos del carrito
 │   ├── checkout-errors.ts        Mensaje compartido servidor/cliente
+│   ├── reservations.ts           Reservación activa más reciente del huésped
 │   └── format.ts                 Formato de fechas, horas y dinero
 │
 ├── middleware.ts                 Protección de rutas y refresco de sesión
@@ -149,7 +153,7 @@ Casa_Brava_Rentals/
 │   └── icons/                    Íconos de amenidades y del sistema
 │
 └── backend/                      Aplicación Django (ver backend/README.md)
-    ├── casabrava_core/           Configuración y rutas de la API
+    ├── casabrava_core/           Configuración, rutas y errores de la API
     ├── usuarios/                 Perfiles y autenticación
     ├── propiedades/              Configuración, tarifas y contenido del Home
     ├── servicios/                Catálogos y disponibilidad
@@ -175,9 +179,13 @@ Casa_Brava_Rentals/
 | Resumen de cobro de la estadía | [components/BookingSummary.tsx](components/BookingSummary.tsx) |
 | Formulario de la estadía completo | [components/ReservarForm.tsx](components/ReservarForm.tsx) |
 | Formularios de spa / comida / vinos | `components/SpaBookingForm.tsx`, `FoodBookingForm.tsx`, `WineBookingForm.tsx` |
+| Aviso de "sin acceso" en `/servicios/*` (admin, o sin estadía activa) | [components/ServiceAccessNotice.tsx](components/ServiceAccessNotice.tsx) |
 | Carrito y sus renglones | [components/CartView.tsx](components/CartView.tsx), [components/CartItemRow.tsx](components/CartItemRow.tsx) |
 | Tabla de usuarios del panel | [components/UsersTable.tsx](components/UsersTable.tsx) |
 | Tabla de reservaciones del panel | [components/ReservationsTable.tsx](components/ReservationsTable.tsx) |
+| Pestañas del panel (Usuarios / Reservaciones / Catálogos) | [components/AdminNav.tsx](components/AdminNav.tsx) |
+| Qué campos y textos tiene cada catálogo del panel | [components/CatalogsView.tsx](components/CatalogsView.tsx) |
+| Tabla y modales genéricos de un catálogo | [components/CatalogTable.tsx](components/CatalogTable.tsx) |
 | Botón "Volver" | [components/BackButton.tsx](components/BackButton.tsx) |
 
 **Estilo general:** todo es Tailwind CSS v4 escrito directamente en las clases. No hay archivo `tailwind.config.js`; los tokens se definen con `@theme` en [app/globals.css](app/globals.css). La paleta es escala de grises (`neutral-*`) con negro para los botones principales, y el diseño se escribe **mobile-first**.
@@ -186,20 +194,21 @@ Casa_Brava_Rentals/
 
 ## 5. Dónde editar el contenido (todo vive en el backend)
 
-Ningún texto, precio ni imagen de negocio está escrito en el código del frontend. Para cambiarlos hay que editar los datos en el backend, desde el **admin de Django** (<http://localhost:8000/admin>) o directamente en la base.
+Ningún texto, precio ni imagen de negocio está escrito en el código del frontend: todo sale de la base de datos. Cuatro catálogos ya se editan desde el propio panel; el resto todavía se edita en el **admin de Django** (<http://localhost:8000/admin>) o directamente en la base.
 
 | Contenido | Dónde se edita | Dónde se ve |
 | --- | --- | --- |
-| Fotos del carrusel | Fotos de la propiedad | Home |
-| Amenidades y sus categorías | Amenidades / Categorías de amenidades | Home |
-| Tarjetas de servicios adicionales | Información de servicios adicionales | Home |
-| Tarifa por noche y depósito | Configuración de la propiedad | `/reservar` y panel |
-| Tipos de tarifa y su recargo | Tipos de tarifa | `/reservar` y panel |
-| Masajistas | Masajistas | `/servicios/spa` |
-| Días y horarios de spa | Disponibilidad de spa | `/servicios/spa` |
-| Menús y precio por persona | Menús | `/servicios/comida` |
-| Días con servicio de cocina | Disponibilidad de comida | `/servicios/comida` |
-| Vinos y paquetes | Vinos / Paquetes de vinos | `/servicios/vinos` |
+| **Tipos de tarifa y su recargo** | **`/admin/catalogos` → Tipos de tarifa** | `/reservar` y panel |
+| **Masajistas** | **`/admin/catalogos` → Masajistas** | `/servicios/spa` |
+| **Menús y precio por persona** | **`/admin/catalogos` → Menús** | `/servicios/comida` |
+| **Vinos (precio y existencias)** | **`/admin/catalogos` → Vinos** | `/servicios/vinos` |
+| Fotos del carrusel | Django: Fotos de la propiedad | Home |
+| Amenidades y sus categorías | Django: Amenidades / Categorías de amenidades | Home |
+| Tarjetas de servicios adicionales | Django: Información de servicios adicionales | Home |
+| Tarifa por noche y depósito | Django: Configuración de la propiedad | `/reservar` y panel |
+| Días y horarios de spa | Django: Disponibilidad de spa | `/servicios/spa` |
+| Días con servicio de cocina | Django: Disponibilidad de comida | `/servicios/comida` |
+| Paquetes de vinos | Django: Paquetes de vinos | `/servicios/vinos` |
 
 `seed_demo` **sí carga el contenido del Home** (60 fotos, 11 categorías con 28 amenidades y las 3 tarjetas de servicio), así que una base recién sembrada renderiza el carrusel y las listas del Home con este contenido curado.
 
@@ -257,11 +266,17 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 
 ### Agregar servicios y pagarlos (`/servicios/*` → `/carrito`)
 
-1. En cada página de servicio se elige lo que se quiere y se pulsa "Agregar al carrito". Eso **solo guarda en el navegador**; todavía no se reserva nada.
-2. El carrito es propio de cada usuario: dos personas en la misma computadora no se mezclan.
-3. En `/carrito`, "Pagar servicios" envía todo al backend y lo asocia a la reservación activa más reciente de esa persona.
-4. **Hace falta tener una estadía reservada primero.** Si no la hay, aparece el aviso "Primero debes reservar tu estadía…" con un atajo a `/reservar`.
-5. Si algo falla a medio camino (por ejemplo, otro huésped tomó ese horario de spa un segundo antes), lo que ya se había creado en ese intento se deshace y el carrito se conserva para poder corregirlo.
+1. Cada página de servicio (`/servicios/spa`, `/servicios/comida`, `/servicios/vinos`) primero revisa quién entra:
+   - Si es **administrador**, no ve el formulario: aparece un aviso de que esa vista es solo para huéspedes.
+   - Si es huésped **sin una estadía activa** (pendiente o confirmada), tampoco ve el formulario: aparece el mismo aviso "Primero debes reservar tu estadía…" con un atajo a `/reservar`, antes de que la persona pierda tiempo llenando nada.
+   - Solo si hay una estadía activa se muestra el formulario.
+2. En spa y comida, el calendario **solo habilita los días de esa estadía** (entre `check_in` y `check_out`, sin contar el día de salida) — no todos los días con disponibilidad general. Vinos no tiene calendario, así que solo aplica el filtro de admin/estadía.
+3. Al elegir lo que se quiere y pulsar "Agregar al carrito", eso **solo guarda en el navegador**; todavía no se reserva nada.
+4. El carrito es propio de cada usuario: dos personas en la misma computadora no se mezclan.
+5. En `/carrito`, "Pagar servicios" envía todo al backend y lo asocia a la reservación activa más reciente de esa persona — la misma noción de "estadía activa" que ya filtró el calendario en el paso 1, así que lo que se ve ya reservable en el formulario es justo lo que el pago va a aceptar.
+6. Si algo falla a medio camino (por ejemplo, otro huésped tomó ese horario de spa un segundo antes), lo que ya se había creado en ese intento se deshace y el carrito se conserva para poder corregirlo.
+
+> Igual que en el resto del sistema, esto es ayuda de UX: el backend ya rechaza un servicio fuera de la estadía o sin ella (`RESERVATION_REQUIRED_ERROR`), y esta capa solo evita que la persona llegue a ese error después de llenar un formulario entero.
 
 ### Panel de usuarios (`/admin`)
 
@@ -279,6 +294,16 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 - **Crear** sugiere el monto a partir de fechas y tarifa, pero lo deja editable por si hay un descuento.
 - **Eliminar** pide doble confirmación. No borra de verdad: marca la reserva como eliminada y libera los horarios de spa, conservando el historial de lo contratado.
 - Confirmar una reserva vuelve a verificar que no choque con otra; si choca, se avisa y no se guarda.
+
+### Panel de catálogos (`/admin/catalogos`)
+
+Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masajistas**, **menús** y **vinos**. Antes solo se podía editar desde el admin de Django.
+
+- Cada pestaña es la misma tabla con sus propias columnas: crear, editar y eliminar, con confirmación de dos pasos para el borrado.
+- **Un borrado puede rebotar, y está bien que rebote.** Si una reservación ya usa esa tarifa, ese menú, ese vino o esa masajista, el servidor no deja borrarlo: hacerlo reescribiría lo que ya se cobró. Aparece un aviso explicándolo y no se borra nada.
+  - Para retirar de la oferta algo que ya tiene historial, la vía es **editarlo** — a una masajista se le pone estado *Inactiva*, y deja de ofrecerse sin perder sus sesiones pasadas.
+- Los servicios ya contratados **conservan el precio con el que se cobraron**. Cambiar un precio aquí afecta a lo que se contrate de ahora en adelante, nunca a lo ya vendido.
+- Lo que todavía **no** está en este panel: los paquetes de vinos y la disponibilidad (horarios de spa, días de cocina). Siguen en el admin de Django.
 
 ---
 
@@ -302,4 +327,4 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 | --- | --- |
 | **Cobro real con Stripe** | El punto de enganche ya existe en el backend (`pagos.services.registrar_pago`). Falta conectar el proveedor y su webhook. Hoy el pago es simulado. |
 | **Vista de pagos en el panel** | El backend ya guarda cada movimiento de cobro por separado (anticipos, saldos, reembolsos), pero el panel todavía solo muestra el estado general de la reserva. |
-| **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. |
+| **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. Los catálogos (tarifas, masajistas, menús y vinos) ya se administran desde `/admin/catalogos`; los paquetes de vinos siguen siendo la excepción. |

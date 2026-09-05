@@ -175,6 +175,9 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Traduce `ProtectedError` de la ORM a 409 en vez de dejarlo escalar a
+    # un 500 con traceback HTML. Ver casabrava_core/exceptions.py.
+    "EXCEPTION_HANDLER": "casabrava_core.exceptions.casabrava_exception_handler",
 }
 
 SIMPLE_JWT = {

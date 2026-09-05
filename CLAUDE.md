@@ -140,7 +140,7 @@ Todo el tráfico hacia Django pasa por aquí. Seis archivos, cada uno con una re
 | Archivo | Qué hace |
 | --- | --- |
 | [config.ts](lib/api/config.ts) | `API_BASE_URL`, nombres de las cookies de sesión y rutas de autenticación. |
-| [types.ts](lib/api/types.ts) | **Todos los contratos de la API en TypeScript.** Escrito a mano contra los serializers del backend; no hay generador. Reemplaza al antiguo archivo de tipos generado desde el esquema de la base. |
+| [types.ts](lib/api/types.ts) | **Todos los contratos de la API en TypeScript.** Escrito a mano contra los serializers del backend; no hay generador. Reemplaza al antiguo archivo de tipos generado desde el esquema de la base. Exporta además dos listas en tiempo de ejecución derivadas de esos enums: `ESTADOS_ACTIVOS` y `MEAL_TYPES` (los tres tiempos de comida, que alimentan el select del catálogo de menús). |
 | [client.ts](lib/api/client.ts) | `apiFetch` (petición cruda + `ApiError`), `extractErrorMessage` y `fetchAllPages`. No sabe nada de sesión: recibe el token ya resuelto. |
 | [jwt.ts](lib/api/jwt.ts) | Lectura de claims **sin verificar firma**. Aparte de `session.ts` porque `middleware.ts` también lo necesita y no puede importar `next/headers`. |
 | [session.ts](lib/api/session.ts) | Lectura/escritura/borrado de las cookies de sesión con `next/headers`. Para Server Components, Server Actions y Route Handlers. |
@@ -221,6 +221,20 @@ Consecuencia de diseño: **ningún Client Component habla con Django directament
 
 ## Panel de administración
 
+Tres rutas bajo `/admin`, todas protegidas por el mismo guard de rol del
+middleware: usuarios (`/admin`), reservaciones (`/admin/reservations`) y
+catálogos (`/admin/catalogos`).
+
+**Navegación** — [components/AdminNav.tsx](components/AdminNav.tsx) es la barra
+secundaria que las enlaza entre sí, y las tres páginas la montan arriba de su
+contenido. Vive aparte del `Navbar` porque solo tiene sentido dentro de
+`/admin/*`, mientras que el Navbar es global. `/admin` se compara por
+**igualdad** y las otras dos por prefijo: con `startsWith` la pestaña "Usuarios"
+también haría match en `/admin/reservations` y se marcarían dos activas a la vez
+(misma distinción exacta/prefijo que hace `middleware.ts` con `/`). Sustituyó a
+la tarjeta-enlace "Ver reservaciones" que vivía en `/admin` y al `BackButton` de
+`/admin/reservations`, que quedaban duplicados por las pestañas.
+
 ### CRUD de usuarios (`/admin`)
 
 - **[app/admin/page.tsx](app/admin/page.tsx)** — Server Component `async`: pide la lista de perfiles y la sesión activa en paralelo, y se los pasa a `UsersTable` como `users`/`currentUserId`.
@@ -243,6 +257,20 @@ Ruta propia, enlazada desde `/admin` con un botón "Ver reservaciones".
 - **Toda la lógica de inventario vive ahora en el backend.** Liberar los bloques de spa al cancelar, volver a tomarlos al reactivar (abortando si otro huésped ya los ocupó) y revisar el solapamiento al confirmar corren dentro de la **misma transacción** que aplica el cambio. Eso cierra un hueco real de la arquitectura anterior, donde eran llamadas separadas desde el frontend y un fallo entre una y otra podía dejar el cambio aplicado con el inventario inconsistente.
 - **"Casa Brava" como propiedad estática**: el sistema modela una sola casa, así que la página lo muestra como subtítulo fijo, no como columna repetida en cada fila.
 
+### CRUD de catálogos (`/admin/catalogos`)
+
+Cuatro catálogos que antes solo se editaban desde el admin de Django: **tipos de tarifa** (`/api/propiedades/tarifas/`), **masajistas** (`/api/proveedores/masajistas/`), **menús** (`/api/servicios/menus/`) y **vinos** (`/api/servicios/vinos/`). Viven en tres apps distintas del backend, pero comparten la misma clase de permiso (`SoloLecturaAutenticadoEscrituraAdmin`: cualquier sesión lee, solo un admin escribe), así que la página los trata como una sola familia.
+
+- **[app/admin/catalogos/page.tsx](app/admin/catalogos/page.tsx)** — Server Component `async`: cuatro `serverFetchAll` en paralelo (colecciones paginadas de a 50; el catálogo de vinos puede pasar de ahí sin avisar) y la conversión de los decimales con `toNumber()`, para que los componentes de presentación reciban números limpios.
+  - Un fallo se convierte en `null` para pintar el aviso de "backend caído", pero **solo si es un `ApiError`**: cualquier otra excepción se vuelve a lanzar, porque `serverFetchAll` señaliza con `redirect()` cuando la sesión ya no sirve y tragarse esa señal dejaría a la persona mirando un mensaje de error en vez de navegar a `/login`. `app/admin/page.tsx` y `app/admin/reservations/page.tsx` todavía usan un `.catch(() => null)` a secas; el camino es casi inalcanzable porque el middleware ya redirigió antes, pero si se tocan esas páginas conviene igualarlas a este patrón.
+- **[app/admin/catalogos/actions.ts](app/admin/catalogos/actions.ts)** — doce Server Actions (crear/editar/eliminar × cuatro catálogos). Las doce difieren solo en endpoint, cuerpo y mensaje de respaldo; el resto —`revalidatePath("/admin/catalogos")`, devolver `{ success: true } | { error: string }` sin lanzar nunca— vive una sola vez en el helper interno `escribirCatalogo`.
+- **[components/CatalogTable.tsx](components/CatalogTable.tsx)** — el CRUD genérico: tabla, modal de crear/editar y confirmación de borrado en **dos pasos**, igual que en reservaciones. Se describe **con datos** (`fields: CatalogField[]`) en vez de existir cuatro veces copiado. Trabaja siempre con strings (es lo que devuelve un `<input>`); cada fila trae `values` (lo que edita el formulario) y `display` (lo ya formateado para la celda, que puede ser un `ReactNode` para pintar una insignia). El modal de edición lleva `key={row.id}`: el estado del formulario se siembra en el inicializador de `useState`, así que sin esa `key` una segunda edición reutilizaría los valores de la primera.
+- **[components/CatalogsView.tsx](components/CatalogsView.tsx)** — el **adaptador**: define los campos de cada catálogo, sus textos y la traducción del formulario (todo strings) al cuerpo tipado de cada Server Action. La conversión de importes con `toNumber()` se hace aquí, en el último punto antes de la petición.
+
+**Un borrado puede fallar por diseño.** Las FK de los cuatro catálogos son `on_delete=PROTECT` desde las reservaciones y sus bookings, para que borrar una fila del catálogo no reescriba lo ya cobrado. Ese intento responde **409** con su mensaje en español y el modal se queda abierto para que el admin dé marcha atrás. La traducción de `ProtectedError` a 409 se agregó en el backend (`casabrava_core/exceptions.py`, registrado como `EXCEPTION_HANDLER`): sin ella salía como 500 con traceback HTML, y `extractErrorMessage` habría metido ese HTML entero dentro de un toast. **El límite real es la API**, no el copy del modal.
+
+**Lo que este panel todavía no cubre**: los paquetes de vino (`/api/servicios/paquetes-vino/`, mismo patrón de permisos y de forma) y la disponibilidad de spa y de cocina. Siguen editándose desde el admin de Django.
+
 ---
 
 ## Checkout de huésped ([app/actions/checkout.ts](app/actions/checkout.ts))
@@ -251,11 +279,17 @@ Regla del dominio: **"estadía primero, servicios después"**. Una reservación 
 
 - **`checkoutStay({ check_in, check_out, fare_type_id })`** — la llama `ReservarForm` ("Proceder al pago"). Hace un `POST` con las fechas y la tarifa, y nada más: el huésped y el monto los resuelve el servidor (`guest` se ignora si lo manda un huésped; `total_amount` se deriva). La validación de fechas y el solapamiento corren en el backend, bajo bloqueo.
 - **`checkoutCartServices(items)`** — la llama `CartView` ("Pagar servicios"):
-  1. Pide las reservaciones del huésped (el backend ya limita la lista a las suyas y excluye las borradas), filtra las activas (`pendiente`/`confirmada`) y toma la más reciente. Si no hay ninguna, devuelve `RESERVATION_REQUIRED_ERROR` en vez de inventar una reservación "placeholder".
+  1. Resuelve la reservación activa con `getActiveReservation()` (ver [lib/reservations.ts](lib/reservations.ts)). Si no hay ninguna, devuelve `RESERVATION_REQUIRED_ERROR` en vez de inventar una reservación "placeholder".
   2. Recorre el carrito creando cada servicio: spa, comida o un pedido de vinos completo (cabecera + líneas en **una sola petición** — el backend no acepta crearlas por separado, justo para que no quede un pedido huérfano).
   3. **Compensación ante un fallo parcial**: si un paso falla a media lista, `compensar()` borra en orden inverso lo ya creado en ese mismo checkout. El backend hace lo correcto en cada caso —borrar una sesión de spa libera además su bloque, y un pedido de vinos se lleva sus líneas por cascada—, y un huésped puede borrar servicios mientras su estadía siga activa, que es exactamente el momento en que corre la compensación.
-- **[lib/checkout-errors.ts](lib/checkout-errors.ts)** exporta `RESERVATION_REQUIRED_ERROR`. Vive fuera de `checkout.ts` porque un archivo `"use server"` **solo puede exportar funciones `async`** — una constante de string ahí rompe el build. Así, tanto el servidor como `CartView.tsx` (cliente) importan el mismo mensaje sin duplicarlo como string mágico.
+- **[lib/reservations.ts](lib/reservations.ts)** exporta `getActiveReservation()`: pide las reservaciones del huésped en sesión (el backend ya limita la lista a las suyas y excluye las borradas), filtra las activas (`pendiente`/`confirmada`) y toma la más reciente. No vive en `lib/api/` porque esa capa es acceso puro a la API — esto ya es una noción de dominio ("cuál es la reservación relevante"). La consumen tanto `checkoutCartServices` como las tres páginas bajo `app/servicios/*` (ver más abajo), para que ambas usen exactamente la misma reservación.
+- **[lib/checkout-errors.ts](lib/checkout-errors.ts)** exporta `RESERVATION_REQUIRED_ERROR`. Vive fuera de `checkout.ts` porque un archivo `"use server"` **solo puede exportar funciones `async`** — una constante de string ahí rompe el build. Lo importan `checkout.ts`, `CartView.tsx` y las tres páginas de `app/servicios/*`, para no duplicar el mensaje como string mágico.
 - **Disponibilidad en el calendario de `/reservar`**: la página pide los rangos **activos** (`pendiente` + `confirmada`, no solo confirmada) y se los pasa a `DateRangeSelector`. Es **ayuda de UX** —evita perder tiempo eligiendo fechas que el servidor va a rechazar—, no la protección contra el doble-booking, que vive en el alta bajo bloqueo. Importa que incluya las `pendiente`: `checkoutStay` crea la estadía del huésped en ese estado, así que una reserva `pendiente` ya ocupa esas fechas contra el alta de otra (ver `hay_solapamiento` en `backend/reservaciones/services.py`) — mostrar solo confirmadas dejaría el calendario libre en fechas que el servidor va a rechazar igual. El intervalo es semi-abierto `[check_in, check_out)`: el día de salida de una reserva **no** se deshabilita, porque un huésped nuevo puede entrar ese mismo día. `DateRangeSelector` construye el rango como `{ from: parseISO(check_in), to: subDays(parseISO(check_out), 1) }`, y pasa `excludeDisabled` a `<Calendar mode="range">` para que la librería reinicie la selección si el usuario intenta "saltar" por encima de un rango bloqueado.
+- **Acceso a `app/servicios/*` (spa, comida, vinos)**: cada página es un Server Component `async` que, además de su catálogo/disponibilidad, resuelve `getSessionUser()` y `getActiveReservation()` en paralelo y decide qué mostrar antes de renderizar el formulario:
+  - Rol `admin` ⇒ `ServiceAccessNotice` ("Los administradores no pueden reservar servicios"), nunca el formulario. Es la misma idea que el doble chequeo de `/admin` en `middleware.ts`: el rol viene de `getSessionUser()` (confirmado contra `/api/usuarios/me/`), no de un claim de JWT sin verificar.
+  - Sin reservación activa ⇒ `ServiceAccessNotice` con el mensaje de `RESERVATION_REQUIRED_ERROR` y un atajo a `/reservar`.
+  - Con reservación activa ⇒ se renderiza el formulario (`SpaBookingForm`/`FoodBookingForm`/`WineBookingForm`), y en spa/comida se le pasan `stayCheckIn`/`stayCheckOut` (`activeReservation.check_in`/`check_out`) como límites estrictos del calendario — mismo intervalo semi-abierto `[check_in, check_out)` que en `/reservar`. Vinos no tiene calendario, así que solo aplica el filtro de admin/estadía.
+  - Como en todo el sistema, esto es **ayuda de UX**, no la protección real: el backend rechaza igual un servicio fuera de la estadía o sin ella. Sin este filtro, un huésped llenaría el formulario entero y solo se enteraría del problema al pagar el carrito.
 
 ---
 

@@ -1,13 +1,18 @@
-import { serverFetchAll } from "@/lib/api/server";
+import { getSessionUser, serverFetchAll } from "@/lib/api/server";
+import { getActiveReservation } from "@/lib/reservations";
+import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
 import { toNumber } from "@/lib/format";
 import WineBookingForm from "@/components/WineBookingForm";
+import ServiceAccessNotice from "@/components/ServiceAccessNotice";
 import BackButton from "@/components/BackButton";
 import type { Wine, WinePackage } from "@/lib/api/types";
 
 export default async function VinosServicePage() {
-  const [wines, winePackages] = await Promise.all([
+  const [wines, winePackages, user, activeReservation] = await Promise.all([
     serverFetchAll<Wine>("/api/servicios/vinos/"),
     serverFetchAll<WinePackage>("/api/servicios/paquetes-vino/"),
+    getSessionUser(),
+    getActiveReservation(),
   ]);
 
   return (
@@ -19,27 +24,41 @@ export default async function VinosServicePage() {
           Agrega botellas individuales o selecciona el paquete de 4 vinos.
         </p>
       </div>
-      <WineBookingForm
-        // Solo se ofertan botellas con inventario; los precios llegan como
-        // string decimal desde DRF y se convierten aquí.
-        wines={wines
-          .filter((wine) => wine.stock > 0)
-          .map((wine) => ({
-            id: wine.id,
-            name: wine.name,
-            type: wine.type,
-            price: toNumber(wine.price),
-          }))}
-        winePackage={
-          winePackages[0]
-            ? {
-                id: winePackages[0].id,
-                name: winePackages[0].name,
-                price: toNumber(winePackages[0].price),
-              }
-            : null
-        }
-      />
+      {user?.role === "admin" ? (
+        <ServiceAccessNotice
+          title="Los administradores no pueden reservar servicios"
+          description="Esta vista es solo para huéspedes. Da de alta el servicio para el huésped desde el panel de reservaciones."
+        />
+      ) : !activeReservation ? (
+        <ServiceAccessNotice
+          title="Necesitas una estadía activa"
+          description={RESERVATION_REQUIRED_ERROR}
+          actionHref="/reservar"
+          actionLabel="Reservar estadía"
+        />
+      ) : (
+        <WineBookingForm
+          // Solo se ofertan botellas con inventario; los precios llegan como
+          // string decimal desde DRF y se convierten aquí.
+          wines={wines
+            .filter((wine) => wine.stock > 0)
+            .map((wine) => ({
+              id: wine.id,
+              name: wine.name,
+              type: wine.type,
+              price: toNumber(wine.price),
+            }))}
+          winePackage={
+            winePackages[0]
+              ? {
+                  id: winePackages[0].id,
+                  name: winePackages[0].name,
+                  price: toNumber(winePackages[0].price),
+                }
+              : null
+          }
+        />
+      )}
     </div>
   );
 }

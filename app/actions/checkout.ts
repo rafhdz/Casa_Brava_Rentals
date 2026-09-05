@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { serverFetch, serverFetchAll, toActionError, ApiError } from "@/lib/api/server";
+import { serverFetch, toActionError, ApiError } from "@/lib/api/server";
 import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
+import { getActiveReservation } from "@/lib/reservations";
 import type { CartItem } from "@/lib/cart-types";
 import type { Reservation } from "@/lib/api/types";
-import { ESTADOS_ACTIVOS } from "@/lib/api/types";
 
 type ActionResult = { success: true } | { error: string };
 
@@ -96,14 +96,9 @@ export async function checkoutCartServices(items: CartItem[]): Promise<ActionRes
   const creados: CreatedService[] = [];
 
   try {
-    // El backend ya limita esta lista a las reservaciones del propio huésped y
-    // excluye las que tienen soft delete, así que aquí solo queda filtrar por
-    // estado activo y quedarse con la más reciente. Adjuntar servicios a una
-    // estadía cancelada o finalizada no tiene sentido.
-    const reservaciones = await serverFetchAll<Reservation>("/api/reservaciones/reservaciones/");
-    const activa = reservaciones
-      .filter((reserva) => ESTADOS_ACTIVOS.includes(reserva.status))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    // Adjuntar servicios a una estadía cancelada o finalizada no tiene
+    // sentido, por eso `getActiveReservation` solo mira pendiente/confirmada.
+    const activa = await getActiveReservation();
 
     if (!activa) return { error: RESERVATION_REQUIRED_ERROR };
 

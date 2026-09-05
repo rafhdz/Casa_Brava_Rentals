@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
@@ -25,11 +25,18 @@ const MEAL_TYPE_ORDER: MealType[] = ["Desayuno", "Almuerzo", "Cena"];
 export default function FoodBookingForm({
   menus,
   availableDates,
+  stayCheckIn,
+  stayCheckOut,
 }: {
   menus: MenuOption[];
   // Fechas ISO ("yyyy-MM-dd") de FoodAvailability. El backend ya le oculta al
   // huésped los días pasados, así que llegan listas para pintar el calendario.
   availableDates: string[];
+  // Límites estrictos de la estadía activa del huésped ("yyyy-MM-dd"). Mismo
+  // intervalo semi-abierto [check_in, check_out) que en DateRangeSelector y
+  // en SpaBookingForm — el día de salida no cuenta como noche de estadía.
+  stayCheckIn: string;
+  stayCheckOut: string;
 }) {
   const router = useRouter();
   const { addToCart } = useCart();
@@ -37,6 +44,13 @@ export default function FoodBookingForm({
   const [mealType, setMealType] = useState<MealType | "">("");
   const [menuOptionId, setMenuOptionId] = useState("");
   const [guests, setGuests] = useState(1);
+
+  // Días con servicio de cocina disponible, acotados a los días de la
+  // estadía activa del huésped.
+  const stayAvailableDates = useMemo(
+    () => availableDates.filter((date) => date >= stayCheckIn && date < stayCheckOut),
+    [availableDates, stayCheckIn, stayCheckOut]
+  );
 
   const availableMealTypes = MEAL_TYPE_ORDER.filter((type) => menus.some((menu) => menu.meal_type === type));
   const menuOptions = mealType ? menus.filter((menu) => menu.meal_type === mealType) : [];
@@ -86,20 +100,22 @@ export default function FoodBookingForm({
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-neutral-900">1. Elige el día</h2>
-        {availableDates.length === 0 ? (
+        {stayAvailableDates.length === 0 ? (
           <p className="text-sm text-neutral-500">
-            No hay días con servicio de cocina disponibles por ahora.
+            No hay días con servicio de cocina disponibles dentro de tu estadía por ahora.
           </p>
         ) : (
           <>
-            <p className="text-sm text-neutral-500">Solo los días con servicio de cocina disponible están habilitados.</p>
+            <p className="text-sm text-neutral-500">
+              Solo los días de tu estadía con servicio de cocina disponible están habilitados.
+            </p>
             <div className="w-fit rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
               <Calendar
                 mode="single"
                 selected={day ? parseISO(day) : undefined}
                 onSelect={(date) => handleSelectDay(date ? format(date, "yyyy-MM-dd") : "")}
-                disabled={(date) => !availableDates.includes(format(date, "yyyy-MM-dd"))}
-                defaultMonth={parseISO(availableDates[0])}
+                disabled={(date) => !stayAvailableDates.includes(format(date, "yyyy-MM-dd"))}
+                defaultMonth={parseISO(stayAvailableDates[0])}
               />
             </div>
             {day && (

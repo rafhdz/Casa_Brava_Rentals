@@ -71,11 +71,14 @@ reservaciones/
   services.py      ⭐ Toda la lógica transaccional: bloqueos, solapamientos,
                    inventario de spa. Las vistas no replican estas reglas.
   views.py         Alcance por rol y traducción de errores de dominio a HTTP
-  tests.py         33 pruebas de las reglas anteriores
+  tests.py         34 pruebas de las reglas anteriores
 pagos/
   services.py      Registro de cobros y estado agregado de la reservación
 propiedades/
+  tests.py         Contrato HTTP de los catálogos (escritura solo admin, 409 en uso)
   management/commands/seed_demo.py   Semilla de desarrollo
+casabrava_core/
+  exceptions.py    Manejador de excepciones de la API: ProtectedError ⇒ 409
 ```
 
 ---
@@ -207,6 +210,17 @@ Un choque de fechas o un bloque ya tomado responde **409 Conflict**, no 400: la
 petición estaba bien formada, lo que se perdió fue la carrera contra otro
 usuario. El mensaje viaja en español, listo para mostrarse.
 
+Bajo el mismo 409 cae **borrar una fila de catálogo que el historial ya
+referencia** (una tarifa usada por una reservación, un menú ya contratado, una
+masajista que atendió sesiones). Todas esas FK son `on_delete=PROTECT` a
+propósito: un borrado en cascada reescribiría lo ya cobrado. La ORM señaliza eso
+con `ProtectedError`, que DRF no sabe traducir por su cuenta y dejaría escalar a
+un 500 con traceback HTML; `casabrava_core/exceptions.py` lo convierte en 409
+con su mensaje, y es lo que muestra el panel de catálogos del frontend.
+Registrado como `EXCEPTION_HANDLER` en `REST_FRAMEWORK`, así que aplica a toda
+la API — el resto de las excepciones siguen pasando por el manejador de DRF sin
+cambios.
+
 ---
 
 ## 6. Autorización: qué reemplaza a RLS
@@ -302,5 +316,8 @@ los datos existentes migren sin reescribir llaves). Las diferencias son:
   `external_reference` del PaymentIntent confirmado.
 * **Administración de disponibilidad.** Los bloques de spa y los días de cocina
   se cargan con `seed_demo` o desde el admin de Django; no hay un flujo dedicado.
+  Los catálogos en sí (tarifas, masajistas, menús y vinos) ya se administran
+  desde `/admin/catalogos` en el frontend; `WinePackage` sigue siendo la
+  excepción y solo se edita desde el admin de Django.
 * **Migración de datos.** No hay script que traiga las filas existentes de
   Supabase; el esquema está listo para recibirlas, pero el volcado es manual.
