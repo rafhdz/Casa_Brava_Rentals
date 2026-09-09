@@ -10,6 +10,7 @@ descuento). Los precios ya guardados son un snapshot y no se recalculan nunca.
 
 from rest_framework import serializers
 
+from propiedades.models import Property
 from reservaciones.models import (
     FoodBooking,
     Reservation,
@@ -145,6 +146,16 @@ class GuestResumenSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True)
 
 
+class PropertyResumenSerializer(serializers.Serializer):
+    """Datos mínimos de la propiedad para el desglose de una reservación —
+    no la ficha completa de `propiedades.PropertySerializer`, que trae precio
+    y aforo, irrelevantes en el contexto de una reservación ya creada."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    slug = serializers.SlugField(read_only=True)
+
+
 class ReservationSerializer(serializers.ModelSerializer):
     """
     Lectura de una reservación con su desglose de servicios.
@@ -155,6 +166,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     """
 
     guest = GuestResumenSerializer(read_only=True)
+    property = PropertyResumenSerializer(read_only=True)
     fare_type_name = serializers.CharField(source="fare_type.name", read_only=True)
     noches = serializers.IntegerField(read_only=True)
     spa_bookings = SpaBookingSerializer(many=True, read_only=True)
@@ -170,12 +182,23 @@ class ReservationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "guest",
+            "property",
             "check_in",
             "check_out",
             "noches",
             "fare_type",
             "fare_type_name",
             "total_amount",
+            # Campos financieros del modelo multi-tenant (comisión/payout);
+            # ver CLAUDE.md "Integración futura planeada" — hoy no los puebla
+            # ninguna regla de negocio, quedan en 0 salvo `accommodation_total`
+            # y `grand_total`, que `services.crear_reservacion` iguala a
+            # `total_amount` al crear.
+            "accommodation_total",
+            "services_total",
+            "platform_fee",
+            "supplier_payout",
+            "grand_total",
             "status",
             "payment_status",
             "created_at",
@@ -195,13 +218,35 @@ class ReservationCreateSerializer(serializers.ModelSerializer):
     `guest` solo lo puede fijar un admin; en el checkout del huésped se ignora y
     la reservación se crea siempre a nombre de la sesión activa. `total_amount`
     es opcional: si no viene, `services.crear_reservacion` lo calcula.
+
+    `property_id`/`property_slug` son opcionales y equivalentes (dos formas de
+    apuntar a la misma propiedad): si no viene ninguno, la vista no manda
+    `propiedad` a `services.crear_reservacion`, que cae al fallback de Tenant 0
+    (`_propiedad_tenant_cero`) — el mismo comportamiento de antes del modelo
+    multi-tenant. Solo propiedades activas son un destino válido.
     """
+
+    property_id = serializers.PrimaryKeyRelatedField(
+        source="property",
+        queryset=Property.objects.filter(is_active=True),
+        required=False,
+        write_only=True,
+    )
+    property_slug = serializers.SlugRelatedField(
+        source="property",
+        slug_field="slug",
+        queryset=Property.objects.filter(is_active=True),
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = Reservation
         fields = [
             "id",
             "guest",
+            "property_id",
+            "property_slug",
             "check_in",
             "check_out",
             "fare_type",

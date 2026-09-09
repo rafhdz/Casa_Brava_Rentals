@@ -52,8 +52,10 @@ def traducir_errores_de_dominio():
 
     Un choque de fechas o un bloque ya tomado no es un error de validación del
     payload —la petición estaba bien formada— sino una carrera perdida contra
-    otro usuario, así que se responde 409 y no 400. El mensaje viaja tal cual:
-    ya viene redactado para el huésped.
+    otro usuario, así que se responde 409 y no 400. Un acceso sin invitación a
+    una propiedad `INVITE_ONLY` tampoco es un dato inválido: es una operación
+    no autorizada, así que responde 403. El mensaje viaja tal cual: ya viene
+    redactado para el huésped.
     """
     try:
         yield
@@ -63,6 +65,8 @@ def traducir_errores_de_dominio():
         services.SlotYaTomadoError,
     ) as exc:
         raise ConflictoDeInventario(str(exc)) from exc
+    except services.AccesoRestringidoError as exc:
+        raise PermissionDenied(str(exc)) from exc
     except services.ReglaDeNegocioError as exc:
         raise ValidationError({"detail": str(exc)}) from exc
 
@@ -136,7 +140,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = (
             Reservation.objects.vigentes()
-            .select_related("guest", "fare_type")
+            .select_related("guest", "property", "fare_type")
             .prefetch_related(
                 "spa_bookings__masseuse",
                 "food_bookings__menu",
@@ -178,6 +182,11 @@ class ReservationViewSet(viewsets.ModelViewSet):
         with traducir_errores_de_dominio():
             reservacion = services.crear_reservacion(
                 guest=guest,
+                # `property_id`/`property_slug` son opcionales en el payload
+                # (ambos comparten `source="property"`); si no vino ninguno,
+                # `datos` no trae la llave y `crear_reservacion` cae a su
+                # fallback de Tenant 0.
+                propiedad=datos.get("property"),
                 check_in=datos["check_in"],
                 check_out=datos["check_out"],
                 fare_type=datos["fare_type"],

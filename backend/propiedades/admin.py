@@ -5,8 +5,11 @@ from propiedades.models import (
     Amenity,
     AmenityCategory,
     FareType,
+    Property,
+    PropertyAccessGrant,
     PropertyPhoto,
     PropertySettings,
+    SupplierProfile,
 )
 
 
@@ -40,3 +43,24 @@ class AmenityCategoryAdmin(admin.ModelAdmin):
 @admin.register(AdditionalServiceInfo)
 class AdditionalServiceInfoAdmin(admin.ModelAdmin):
     list_display = ["id", "title", "price_hint"]
+
+
+@admin.register(SupplierProfile)
+class SupplierProfileAdmin(admin.ModelAdmin):
+    list_display = ["business_name", "user", "commission_rate", "is_active"]
+    search_fields = ["business_name", "user__email"]
+
+
+@admin.register(Property)
+class PropertyAdmin(admin.ModelAdmin):
+    list_display = ["name", "slug", "access_type", "base_price_per_night", "is_active"]
+    list_filter = ["access_type", "is_active"]
+    search_fields = ["name", "slug"]
+    prepopulated_fields = {"slug": ("name",)}
+
+
+@admin.register(PropertyAccessGrant)
+class PropertyAccessGrantAdmin(admin.ModelAdmin):
+    list_display = ["property", "user", "granted_at"]
+    list_filter = ["property"]
+    search_fields = ["user__email"]

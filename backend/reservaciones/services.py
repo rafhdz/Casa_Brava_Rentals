@@ -17,7 +17,9 @@ concurrentes (`select ... for update`), aquí lo hace `select_for_update()`.
 **Orden de bloqueo** — siempre el mismo, en toda función que tome más de un
 lock, para que dos transacciones concurrentes no se abracen en un deadlock:
 
-    1. `PropertySettings` (la fila única: serializa el calendario de la casa)
+    1. `Property` (la propiedad reservada: serializa su propio calendario;
+       dos propiedades distintas se bloquean por filas distintas y no se
+       esperan entre sí)
     2. `Reservation`
     3. `SpaAvailability`, recorrida en orden (masajista, fecha, hora)
 
@@ -30,7 +32,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.utils import timezone
 
-from propiedades.models import PropertySettings
+from propiedades.models import Property, PropertyAccessGrant, PropertyAccessType, PropertySettings
 from reservaciones.models import (
     ESTADOS_ACTIVOS,
     FoodBooking,
@@ -46,6 +48,11 @@ CENTAVOS = Decimal("0.01")
 
 #: Estados desde los que reactivar una reservación exige recuperar su inventario.
 ESTADOS_INACTIVOS = (ReservationStatus.CANCELADA, ReservationStatus.FINALIZADA)
+
+#: Slug de la única propiedad que existe hoy en el MVP de una sola casa.
+#: Fallback de retrocompatibilidad mientras el frontend no elija una propiedad
+#: explícita al reservar (ver `_propiedad_tenant_cero`).
+TENANT_ZERO_SLUG = "casa-brava"
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +91,12 @@ class ConfiguracionFaltanteError(ReglaDeNegocioError):
     pass
 
 
+class AccesoRestringidoError(ReglaDeNegocioError):
+    """La propiedad es de acceso por invitación y el huésped no tiene un
+    `PropertyAccessGrant` vigente. Se traduce a 403, no a 409/400 — no es una
+    carrera perdida ni un dato inválido, es una operación no autorizada."""
+
+
 # ---------------------------------------------------------------------------
 # Reglas de fechas y tarifas
 # ---------------------------------------------------------------------------
@@ -99,10 +112,10 @@ def validar_fechas(check_in, check_out):
         raise FechasInvalidasError("La fecha de salida debe ser posterior a la de entrada.")
 
 
-def hay_solapamiento(check_in, check_out, excluir_id=None):
+def hay_solapamiento(propiedad, check_in, check_out, excluir_id=None):
     """
     ¿Choca este rango con alguna reservación **activa** (pendiente o
-    confirmada) y vigente?
+    confirmada) y vigente **de esa misma propiedad**?
 
     Se verifica contra `activas()`, no solo contra `confirmadas()`: una
     reservación `pendiente` ya ocupa el calendario desde que se crea, porque es
@@ -115,20 +128,20 @@ def hay_solapamiento(check_in, check_out, excluir_id=None):
     apartado.
 
     Intervalo semi-abierto `[check_in, check_out)`: un check-out el mismo día
-    que el check-in de otra reserva no es conflicto. Como el sistema modela una
-    sola casa, no se filtra por propiedad — todas compiten por el mismo
-    calendario.
+    que el check-in de otra reserva no es conflicto. El filtro por `propiedad`
+    es lo que hace posible el aislamiento multi-tenant: dos propiedades
+    distintas nunca compiten por el mismo calendario, aunque compartan fechas.
     """
     conflictos = Reservation.objects.activas().filter(
-        check_in__lt=check_out, check_out__gt=check_in
+        property=propiedad, check_in__lt=check_out, check_out__gt=check_in
     )
     if excluir_id is not None:
         conflictos = conflictos.exclude(pk=excluir_id)
     return conflictos.exists()
 
 
-def _asegurar_sin_solapamiento(check_in, check_out, excluir_id=None):
-    if hay_solapamiento(check_in, check_out, excluir_id):
+def _asegurar_sin_solapamiento(propiedad, check_in, check_out, excluir_id=None):
+    if hay_solapamiento(propiedad, check_in, check_out, excluir_id):
         raise SolapamientoError(
             "Las fechas seleccionadas se cruzan con otra reservación activa."
         )
@@ -149,23 +162,71 @@ def calcular_total_estadia(*, check_in, check_out, fare_type, configuracion):
     return total.quantize(CENTAVOS, rounding=ROUND_HALF_UP)
 
 
-def _bloquear_configuracion():
+def _bloquear_propiedad(propiedad):
     """
-    Toma el lock del calendario.
+    Toma el lock de la fila de la propiedad: es su punto de serialización del
+    calendario. Cada `Property` es su propio punto de serialización — dos
+    huéspedes reservando fechas en propiedades **distintas** nunca se bloquean
+    entre sí, así que el aislamiento multi-tenant no sacrifica concurrencia
+    entre propiedades no relacionadas.
 
-    La casa es una sola, así que su fila de `PropertySettings` sirve como punto
-    de serialización: cualquier operación que decida si un rango de fechas está
-    libre pasa por aquí primero. Sin este lock, dos transacciones concurrentes
+    Sin este lock, dos transacciones concurrentes sobre la misma propiedad
     podrían leer "no hay solapamiento" a la vez e insertar reservaciones
     encimadas — `select_for_update()` sobre la consulta de solapamiento no
     serviría, porque bloquear filas que todavía no existen es imposible.
     """
-    configuracion = PropertySettings.objects.select_for_update().first()
+    return Property.objects.select_for_update().get(pk=propiedad.pk)
+
+
+def _obtener_configuracion_de_precio():
+    """
+    Tarifa por noche y depósito vigentes para calcular el total de la estadía.
+
+    Ya no es el punto de serialización del calendario —eso lo hace ahora
+    `_bloquear_propiedad`—, así que esta lectura no necesita
+    `select_for_update()`. `PropertySettings` sigue siendo la única fuente de
+    estos dos valores (no se migró a `Property.base_price_per_night`/
+    `security_deposit` todavía; ver `propiedades/models.py`).
+    """
+    configuracion = PropertySettings.objects.first()
     if configuracion is None:
         raise ConfiguracionFaltanteError(
             "No hay configuración de la propiedad cargada (tarifa por noche y depósito)."
         )
     return configuracion
+
+
+def _propiedad_tenant_cero():
+    """
+    Fallback de retrocompatibilidad: mientras el frontend no elija una
+    propiedad explícita, toda reservación se crea contra el Tenant 0 (Casa
+    Brava) — la única propiedad que existe hoy en el MVP de una sola casa.
+    """
+    try:
+        return Property.objects.get(slug=TENANT_ZERO_SLUG)
+    except Property.DoesNotExist:
+        raise ConfiguracionFaltanteError(
+            "No existe la propiedad 'casa-brava' (Tenant 0). Corre la migración "
+            "de datos o `seed_demo` antes de crear reservaciones."
+        ) from None
+
+
+def _verificar_acceso_a_propiedad(propiedad, guest):
+    """
+    Gobernanza `INVITE_ONLY`: si la propiedad restringe el acceso, el huésped
+    a cuyo nombre se crea la reservación necesita un `PropertyAccessGrant`
+    vigente. No hay excepción para quien la registra (p. ej. un admin creando
+    a nombre de otro desde el panel): lo que importa es que el huésped esté
+    invitado a esa propiedad, sin importar quién ejecuta la petición.
+    """
+    if propiedad.access_type != PropertyAccessType.INVITE_ONLY:
+        return
+    tiene_acceso = PropertyAccessGrant.objects.filter(property=propiedad, user=guest).exists()
+    if not tiene_acceso:
+        raise AccesoRestringidoError(
+            "Esta propiedad es de acceso exclusivo por invitación y el huésped "
+            "no tiene una invitación vigente."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +241,7 @@ def crear_reservacion(
     check_in,
     check_out,
     fare_type,
+    propiedad=None,
     total_amount=None,
     status=ReservationStatus.PENDIENTE,
     payment_status=None,
@@ -187,13 +249,21 @@ def crear_reservacion(
     """
     Crea la estadía verificando disponibilidad bajo bloqueo.
 
-    `total_amount` solo se respeta si viene explícito (el panel admin permite
-    ajustar el monto a mano, p. ej. para un descuento); en el checkout de
-    autoservicio del huésped se omite y el total se recalcula aquí.
+    `propiedad` es opcional: si no se especifica, cae al Tenant 0
+    (`_propiedad_tenant_cero`) como fallback de retrocompatibilidad para el
+    MVP actual de una sola casa. `total_amount` solo se respeta si viene
+    explícito (el panel admin permite ajustar el monto a mano, p. ej. para un
+    descuento); en el checkout de autoservicio del huésped se omite y el total
+    se recalcula aquí.
     """
     validar_fechas(check_in, check_out)
-    configuracion = _bloquear_configuracion()
-    _asegurar_sin_solapamiento(check_in, check_out)
+    if propiedad is None:
+        propiedad = _propiedad_tenant_cero()
+    _verificar_acceso_a_propiedad(propiedad, guest)
+
+    propiedad = _bloquear_propiedad(propiedad)
+    configuracion = _obtener_configuracion_de_precio()
+    _asegurar_sin_solapamiento(propiedad, check_in, check_out)
 
     if total_amount is None:
         total_amount = calcular_total_estadia(
@@ -205,10 +275,19 @@ def crear_reservacion(
 
     campos = {
         "guest": guest,
+        "property": propiedad,
         "check_in": check_in,
         "check_out": check_out,
         "fare_type": fare_type,
         "total_amount": total_amount,
+        # Campos financieros del modelo multi-tenant: todavía no hay reparto
+        # real de comisión/payout (ver CLAUDE.md), así que solo se refleja lo
+        # que ya se sabe hoy — el alta de estadía no trae servicios todavía.
+        "accommodation_total": total_amount,
+        "services_total": Decimal("0.00"),
+        "platform_fee": Decimal("0.00"),
+        "supplier_payout": Decimal("0.00"),
+        "grand_total": total_amount,
         "status": status,
     }
     if payment_status is not None:
@@ -239,7 +318,7 @@ def actualizar_reservacion(reservation_id, **cambios):
     3. **Cancelación** — si el estado efectivo queda en `cancelada`, se liberan
        sus bloques **después** de guardar.
     """
-    configuracion_bloqueada = False
+    propiedad_bloqueada = False
     reservacion = Reservation.objects.select_for_update().get(pk=reservation_id)
 
     status_anterior = reservacion.status
@@ -253,12 +332,14 @@ def actualizar_reservacion(reservation_id, **cambios):
     es_reactivacion = status_anterior in ESTADOS_INACTIVOS and status_efectivo in ESTADOS_ACTIVOS
     if cambian_fechas or es_reactivacion or status_efectivo == ReservationStatus.CONFIRMADA:
         validar_fechas(check_in, check_out)
-        _bloquear_configuracion()
-        configuracion_bloqueada = True
-        _asegurar_sin_solapamiento(check_in, check_out, excluir_id=reservacion.pk)
+        _bloquear_propiedad(reservacion.property)
+        propiedad_bloqueada = True
+        _asegurar_sin_solapamiento(
+            reservacion.property, check_in, check_out, excluir_id=reservacion.pk
+        )
 
     if es_reactivacion:
-        readquirir_slots_de_reservacion(reservacion, _configuracion_bloqueada=configuracion_bloqueada)
+        readquirir_slots_de_reservacion(reservacion, _propiedad_bloqueada=propiedad_bloqueada)
 
     for campo, valor in cambios.items():
         setattr(reservacion, campo, valor)
@@ -416,7 +497,7 @@ def liberar_slots_de_reservacion(reservacion):
 
 
 @transaction.atomic
-def readquirir_slots_de_reservacion(reservacion, *, _configuracion_bloqueada=False):
+def readquirir_slots_de_reservacion(reservacion, *, _propiedad_bloqueada=False):
     """
     Vuelve a tomar los bloques de una reservación que se reactiva (traslado de
     `reacquire_spa_slots_for_reservation()`).
@@ -430,8 +511,8 @@ def readquirir_slots_de_reservacion(reservacion, *, _configuracion_bloqueada=Fal
     El recorrido va ordenado por (masajista, fecha, hora) para que dos llamadas
     concurrentes que compartan bloques los tomen siempre en el mismo orden.
     """
-    if not _configuracion_bloqueada:
-        _bloquear_configuracion()
+    if not _propiedad_bloqueada:
+        _bloquear_propiedad(reservacion.property)
 
     readquiridos = 0
     bookings = reservacion.spa_bookings.order_by("masseuse_id", "date", "time")

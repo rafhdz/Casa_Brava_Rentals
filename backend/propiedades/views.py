@@ -17,6 +17,7 @@ from propiedades.models import (
     Amenity,
     AmenityCategory,
     FareType,
+    Property,
     PropertyPhoto,
     PropertySettings,
 )
@@ -25,7 +26,9 @@ from propiedades.serializers import (
     AmenityCategorySerializer,
     AmenitySerializer,
     FareTypeSerializer,
+    PropertyDetailSerializer,
     PropertyPhotoSerializer,
+    PropertySerializer,
     PropertySettingsSerializer,
 )
 from usuarios.permissions import (
@@ -71,3 +74,26 @@ class AdditionalServiceInfoViewSet(viewsets.ModelViewSet):
     serializer_class = AdditionalServiceInfoSerializer
     permission_classes = [AllowAny, LecturaPublicaEscrituraAdmin]
     pagination_class = None
+
+
+class PropertyViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Catálogo de propiedades del marketplace multi-tenant.
+
+    Lectura pública: el listado/detalle de una propiedad no es sensible — lo
+    sensible es si *quien pregunta* tiene acceso, que es justo lo que expone
+    `PropertyDetailSerializer.user_has_access` evaluando `request.user` (por
+    eso este ViewSet pasa el `request` en el contexto del serializer, como
+    hace `get_serializer_context()` por defecto). Solo lectura: alta, edición
+    y baja de propiedades siguen siendo trabajo del admin de Django (no hay
+    UI de administración de propiedades todavía).
+    """
+
+    queryset = Property.objects.filter(is_active=True).select_related("supplier")
+    lookup_field = "slug"
+    permission_classes = [AllowAny]
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return PropertyDetailSerializer
+        return PropertySerializer

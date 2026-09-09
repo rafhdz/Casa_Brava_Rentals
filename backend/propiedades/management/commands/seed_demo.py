@@ -23,8 +23,12 @@ from propiedades.models import (
     Amenity,
     AmenityCategory,
     FareType,
+    Property,
+    PropertyAccessGrant,
+    PropertyAccessType,
     PropertyPhoto,
     PropertySettings,
+    SupplierProfile,
 )
 from proveedores.models import SpaMasseuse
 from servicios.models import (
@@ -38,6 +42,10 @@ from servicios.models import (
 from usuarios.models import ProfileStatus, RoleType, Usuario
 
 CONTRASENA_DEMO = "changeme123"  # solo para el entorno local
+
+#: Mismo slug que usa `reservaciones.services._propiedad_tenant_cero` como
+#: fallback: hay que mantenerlos sincronizados.
+TENANT_ZERO_SLUG = "casa-brava"
 
 # Contenido visual del Home, tal como vivía en `supabase/seed.sql` (recuperado
 # del historial de git al migrar a Django). `seed_demo` no lo cargaba y dejaba
@@ -265,6 +273,35 @@ class Command(BaseCommand):
                     role=rol,
                     status=ProfileStatus.ACTIVO,
                 )
+
+        # Tenant 0: el admin es dueño de Casa Brava, y los dos huéspedes demo
+        # conservan su invitación a esa propiedad (INVITE_ONLY). Mismos datos
+        # que crea la migración `reservaciones.0004_tenant_zero_data_migration`,
+        # repetidos aquí para que `seed_demo` deje el entorno utilizable incluso
+        # en una base recreada sin volver a correr esa migración de datos.
+        supplier_profile, _ = SupplierProfile.objects.update_or_create(
+            user=Usuario.objects.get(email="admin@test.com"),
+            defaults={"business_name": "Casa Brava", "is_active": True},
+        )
+        propiedad_casa_brava, _ = Property.objects.update_or_create(
+            slug=TENANT_ZERO_SLUG,
+            defaults={
+                "supplier": supplier_profile,
+                "name": "Casa Brava",
+                "description": "Casa Brava — propiedad original del sistema (tenant 0).",
+                "access_type": PropertyAccessType.INVITE_ONLY,
+                "require_identity_verification": True,
+                "base_price_per_night": Decimal("4500.00"),
+                "security_deposit": Decimal("2000.00"),
+                "cleaning_fee": Decimal("0.00"),
+                "max_guests": 10,
+                "is_active": True,
+            },
+        )
+        for email in ("maria.gomez@example.com", "carlos.ruiz@example.com"):
+            PropertyAccessGrant.objects.get_or_create(
+                property=propiedad_casa_brava, user=Usuario.objects.get(email=email)
+            )
 
         menus = [
             (MealType.DESAYUNO, "Desayuno mexicano", "280.00"),

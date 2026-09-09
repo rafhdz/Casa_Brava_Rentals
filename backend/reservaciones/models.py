@@ -14,11 +14,18 @@ desactivar el catálogo en vez de eliminarlo.
 """
 
 import uuid
+from decimal import Decimal
 
 from django.db import models
 
 from pagos.models import PaymentStatus
 from servicios.models import MealType
+
+# Alias del `property` builtin: el campo `Reservation.property` (FK a
+# `propiedades.Property`) sombrea el nombre `property` dentro del cuerpo de la
+# clase, así que los `@property` declarados después de ese campo deben usar
+# este alias en su lugar.
+_python_property = property
 
 
 class ReservationStatus(models.TextChoices):
@@ -68,12 +75,29 @@ class Reservation(models.Model):
     guest = models.ForeignKey(
         "usuarios.Usuario", on_delete=models.PROTECT, related_name="reservations"
     )
+    property = models.ForeignKey(
+        "propiedades.Property", on_delete=models.PROTECT, related_name="reservations"
+    )
     check_in = models.DateField()
     check_out = models.DateField()
     fare_type = models.ForeignKey(
         "propiedades.FareType", on_delete=models.PROTECT, related_name="reservations"
     )
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    # Campos financieros del modelo multi-tenant (marketplace). Todavía no los
+    # puebla ninguna regla de negocio — quedan en 0 hasta que se implemente el
+    # cálculo de comisión/payout (ver CLAUDE.md, "Integración futura planeada").
+    accommodation_total = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    services_total = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    supplier_payout = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    grand_total = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     status = models.CharField(
         max_length=20, choices=ReservationStatus.choices, default=ReservationStatus.PENDIENTE
     )
@@ -100,6 +124,7 @@ class Reservation(models.Model):
         ]
         indexes = [
             models.Index(fields=["guest"], name="reservations_guest_id_idx"),
+            models.Index(fields=["property"], name="reservations_property_idx"),
             models.Index(fields=["fare_type"], name="reservations_fare_type_idx"),
             models.Index(fields=["status", "check_in"], name="reservations_status_date_idx"),
         ]
@@ -107,15 +132,15 @@ class Reservation(models.Model):
     def __str__(self):
         return f"{self.guest_id} · {self.check_in} → {self.check_out}"
 
-    @property
+    @_python_property
     def esta_activa(self):
         return self.deleted_at is None and self.status in ESTADOS_ACTIVOS
 
-    @property
+    @_python_property
     def noches(self):
         return (self.check_out - self.check_in).days
 
-    @property
+    @_python_property
     def subtotal_servicios(self):
         """Suma de los servicios contratados, a los precios ya guardados.
 
@@ -127,7 +152,7 @@ class Reservation(models.Model):
         total += sum(o.total_price for o in self.wine_orders.all())
         return total
 
-    @property
+    @_python_property
     def gran_total(self):
         """Estadía + servicios. Valor derivado, nunca una columna."""
         return self.total_amount + self.subtotal_servicios

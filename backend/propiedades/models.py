@@ -114,6 +114,103 @@ class Amenity(models.Model):
         return self.name
 
 
+class SupplierProfile(models.Model):
+    """Datos de negocio de un proveedor (dueño de una o más propiedades).
+
+    1:1 con `Usuario` porque el proveedor sigue siendo una cuenta de sesión
+    normal (rol `SUPPLIER`/`holder`); este modelo solo agrega lo que necesita
+    para operar como proveedor en el marketplace (cobro vía Stripe Connect,
+    comisión de la plataforma).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        "usuarios.Usuario", on_delete=models.CASCADE, related_name="supplier_profile"
+    )
+    business_name = models.CharField(max_length=255)
+    stripe_account_id = models.CharField(max_length=255, blank=True, null=True)
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10.00)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "supplier_profiles"
+        verbose_name = "perfil de proveedor"
+        verbose_name_plural = "perfiles de proveedor"
+
+    def __str__(self):
+        return self.business_name
+
+
+class PropertyAccessType(models.TextChoices):
+    """Controla si una propiedad es reservable por cualquier huésped o solo
+    por quienes tengan un `PropertyAccessGrant` explícito."""
+
+    OPEN = "OPEN", "Abierta"
+    INVITE_ONLY = "INVITE_ONLY", "Solo por invitación"
+
+
+class Property(models.Model):
+    """Una propiedad rentable dentro del marketplace, propiedad de un proveedor.
+
+    Reemplaza la noción de "una sola casa" de `PropertySettings`: cada
+    proveedor puede tener varias. `PropertySettings` no se elimina todavía
+    (sigue siendo la fuente de tarifa/depósito para la Casa Brava original)
+    hasta que se migre esa lógica a este modelo.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    supplier = models.ForeignKey(
+        SupplierProfile, on_delete=models.PROTECT, related_name="properties"
+    )
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(unique=True, max_length=255)
+    description = models.TextField(blank=True, default="")
+    access_type = models.CharField(
+        max_length=20, choices=PropertyAccessType.choices, default=PropertyAccessType.OPEN
+    )
+    require_identity_verification = models.BooleanField(default=True)
+    base_price_per_night = models.DecimalField(max_digits=10, decimal_places=2)
+    security_deposit = models.DecimalField(max_digits=10, decimal_places=2)
+    cleaning_fee = models.DecimalField(max_digits=10, decimal_places=2)
+    max_guests = models.PositiveIntegerField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "properties"
+        verbose_name = "propiedad"
+        verbose_name_plural = "propiedades"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class PropertyAccessGrant(models.Model):
+    """Otorga a un usuario acceso explícito a una propiedad `INVITE_ONLY`."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    property = models.ForeignKey(
+        Property, on_delete=models.CASCADE, related_name="access_grants"
+    )
+    user = models.ForeignKey(
+        "usuarios.Usuario", on_delete=models.CASCADE, related_name="property_access_grants"
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "property_access_grants"
+        verbose_name = "acceso a propiedad"
+        verbose_name_plural = "accesos a propiedad"
+        unique_together = ("property", "user")
+
+    def __str__(self):
+        return f"{self.user_id} → {self.property_id}"
+
+
 class AdditionalServiceInfo(models.Model):
     """
     Tarjeta de servicio adicional del Home.

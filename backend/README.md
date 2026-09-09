@@ -41,7 +41,7 @@ aparecen en pantalla.
 | App | Responsabilidad | Modelos | Prefijo de API |
 | --- | --- | --- | --- |
 | **`usuarios`** | Perfiles y autenticación. Fusiona `auth.users` + `profiles` de Supabase en un modelo de usuario propio con el correo como identificador. También define las clases de permiso que usan las demás apps. | `Usuario` | `/api/usuarios/` |
-| **`propiedades`** | La casa: configuración de cobro, tipos de tarifa y el contenido visual del Home. | `PropertySettings`, `FareType`, `PropertyPhoto`, `AmenityCategory`, `Amenity`, `AdditionalServiceInfo` | `/api/propiedades/` |
+| **`propiedades`** | La configuración de cobro heredada de una-sola-casa, el catálogo multi-tenant de propiedades y el contenido visual del Home. | `PropertySettings`, `FareType`, `PropertyPhoto`, `AmenityCategory`, `Amenity`, `AdditionalServiceInfo`, `SupplierProfile`, `Property`, `PropertyAccessGrant` | `/api/propiedades/` |
 | **`servicios`** | Catálogos de los servicios adicionales y su disponibilidad. | `FoodMenu`, `Wine`, `WinePackage`, `SpaAvailability`, `FoodAvailability` | `/api/servicios/` |
 | **`proveedores`** | Prestadores externos. Hoy solo masajistas; chefs y sommeliers entran aquí. | `SpaMasseuse` | `/api/proveedores/` |
 | **`reservaciones`** | La estadía (registro maestro) y los servicios contratados. Contiene toda la lógica transaccional. | `Reservation`, `SpaBooking`, `FoodBooking`, `WineOrder`, `WineOrderItem` | `/api/reservaciones/` |
@@ -67,16 +67,21 @@ usuarios/
   permissions.py   Reemplazo de las políticas RLS (ver §6)
   serializers.py   Incluye el token JWT con el rol dentro
 reservaciones/
-  models.py        Reservation (+ soft delete) y los tres tipos de booking
-  services.py      ⭐ Toda la lógica transaccional: bloqueos, solapamientos,
-                   inventario de spa. Las vistas no replican estas reglas.
+  models.py        Reservation (+ soft delete, FK a Property) y los tres tipos de booking
+  services.py      ⭐ Toda la lógica transaccional: bloqueos por propiedad,
+                   solapamientos, inventario de spa, gobernanza INVITE_ONLY.
+                   Las vistas no replican estas reglas.
   views.py         Alcance por rol y traducción de errores de dominio a HTTP
-  tests.py         34 pruebas de las reglas anteriores
+  tests.py         42 pruebas de las reglas anteriores + el contrato HTTP de reservaciones
 pagos/
   services.py      Registro de cobros y estado agregado de la reservación
 propiedades/
+  models.py        SupplierProfile, Property, PropertyAccessGrant (§9) +
+                   PropertySettings/FareType/contenido del Home
+  views.py         PropertyViewSet (solo lectura, público) + catálogos de siempre
   tests.py         Contrato HTTP de los catálogos (escritura solo admin, 409 en uso)
-  management/commands/seed_demo.py   Semilla de desarrollo
+                   y de `/api/propiedades/` (9 pruebas)
+  management/commands/seed_demo.py   Semilla de desarrollo (incluye el Tenant 0)
 casabrava_core/
   exceptions.py    Manejador de excepciones de la API: ProtectedError ⇒ 409
 ```
@@ -160,33 +165,43 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
 
 | Función | Reemplaza a | Qué protege |
 | --- | --- | --- |
-| `crear_reservacion` | `checkoutStay` + `createReservation` | Bloquea la fila de `PropertySettings` antes de verificar solapamiento |
-| `actualizar_reservacion` | `updateReservation` | Solapamiento al confirmar, re-adquisición al reactivar, liberación al cancelar |
+| `crear_reservacion` | `checkoutStay` + `createReservation` | Bloquea la fila de `Property` reservada antes de verificar solapamiento (acotado a esa propiedad) y valida `INVITE_ONLY` antes de tocar la base |
+| `actualizar_reservacion` | `updateReservation` | Solapamiento al confirmar, re-adquisición al reactivar, liberación al cancelar — todo acotado a `reservacion.property` |
 | `eliminar_reservacion` | `deleteReservation` | Soft delete + liberación de inventario |
 | `reservar_bloque_spa` | `book_spa_slot()` | `select_for_update()` sobre el bloque de `SpaAvailability` |
 | `liberar_spa_booking` | `release_spa_booking()` | Compensación: borra la reserva **y** devuelve el bloque |
 | `liberar_slots_de_reservacion` | `release_spa_slots_for_reservation()` | Cancelar libera horarios sin borrar historial |
 | `readquirir_slots_de_reservacion` | `reacquire_spa_slots_for_reservation()` | Reactivar una cancelada no puede pisar lo que otro ya tomó |
 
-### Las cuatro reglas que hay que conocer antes de tocar este archivo
+### Las cinco reglas que hay que conocer antes de tocar este archivo
 
-1. **Orden de bloqueo fijo**: `PropertySettings` → `Reservation` →
+1. **Orden de bloqueo fijo**: `Property` (la reservada) → `Reservation` →
    `SpaAvailability` (recorrida ordenada por masajista, fecha, hora). Dos
    transacciones que tomen los mismos locks en distinto orden se abrazan en un
    deadlock.
 
-2. **El calendario se serializa sobre `PropertySettings`**. Es una casa sola, así
-   que su fila única sirve de punto de serialización. No se puede bloquear "las
-   reservaciones que se solapan" porque **todavía no existen**: sin este lock,
-   dos peticiones concurrentes leen "no hay solape" a la vez y ambas insertan.
+2. **El calendario se serializa por propiedad, sobre la fila de `Property`**
+   (`_bloquear_propiedad`, antes era la fila única de `PropertySettings`). Cada
+   `Property` es su propio punto de serialización: dos huéspedes reservando
+   fechas en propiedades **distintas** no se bloquean entre sí — el aislamiento
+   multi-tenant no le resta concurrencia a propiedades no relacionadas. No se
+   puede bloquear "las reservaciones que se solapan" porque **todavía no
+   existen**: sin este lock, dos peticiones concurrentes sobre la misma
+   propiedad leen "no hay solape" a la vez y ambas insertan.
+   `PropertySettings` sigue existiendo solo como fuente de `nightly_rate`/
+   `security_deposit` (una lectura simple, sin lock: ya no es el punto de
+   serialización).
 
 3. **El solapamiento se verifica contra reservas *activas* (`pendiente` o
-   `confirmada`), no solo `confirmada`.** `checkoutStay` crea la estadía del
-   huésped ya en `pendiente`, así que una `pendiente` tiene que ocupar el
-   calendario desde que se crea — verificar solo contra confirmadas dejaba una
-   ventana real de double-booking: dos huéspedes podían quedarse cada uno con
-   una reserva `pendiente` sobre las mismas fechas, y el choque solo salía a la
-   luz cuando un admin intentaba confirmar la segunda.
+   `confirmada`) **de la misma propiedad**, no solo `confirmada`.**
+   `checkoutStay` crea la estadía del huésped ya en `pendiente`, así que una
+   `pendiente` tiene que ocupar el calendario desde que se crea — verificar solo
+   contra confirmadas dejaba una ventana real de double-booking: dos huéspedes
+   podían quedarse cada uno con una reserva `pendiente` sobre las mismas
+   fechas, y el choque solo salía a la luz cuando un admin intentaba confirmar
+   la segunda. El filtro por `property_id` es lo que hace posible el
+   aislamiento: los mismos días en dos propiedades distintas no son un
+   solapamiento.
 4. **El chequeo de solapamiento corre en varios disparadores**, no solo al cambiar fechas:
    también cuando la reservación se reactiva (`cancelada`/`finalizada` → un
    estado activo) y cuando el estado efectivo queda en `confirmada` sin haber
@@ -195,6 +210,14 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
    segundo, que una reserva cancelada se reactive — incluso solo a
    `pendiente` — pisando fechas que otra reservación tomó mientras esta
    estaba inactiva.
+5. **Gobernanza `INVITE_ONLY`**: antes de tomar cualquier lock, `crear_reservacion`
+   verifica si `propiedad.access_type == INVITE_ONLY` y, de ser así, exige un
+   `PropertyAccessGrant` para el **huésped** a cuyo nombre se crea la reserva
+   (no para quien hace la petición — un admin puede crear a nombre de un
+   huésped sin invitación, y la operación se rechaza igual). Sin propiedad
+   explícita en el payload, se usa el Tenant 0 (`_propiedad_tenant_cero`,
+   slug `casa-brava`) como fallback de retrocompatibilidad — es la única
+   propiedad del MVP actual, y hoy es `INVITE_ONLY` (ver §9).
 
 ### Montos
 
@@ -209,6 +232,11 @@ recalculan contra el catálogo vigente.
 Un choque de fechas o un bloque ya tomado responde **409 Conflict**, no 400: la
 petición estaba bien formada, lo que se perdió fue la carrera contra otro
 usuario. El mensaje viaja en español, listo para mostrarse.
+
+Reservar una propiedad `INVITE_ONLY` sin `PropertyAccessGrant` responde
+**403 Forbidden** (`AccesoRestringidoError` → `PermissionDenied`), no 400 ni
+409: la petición está bien formada y no hay ninguna carrera — es una operación
+que ese usuario no tiene permitida, punto.
 
 Bajo el mismo 409 cae **borrar una fila de catálogo que el historial ya
 referencia** (una tarifa usada por una reservación, un menú ya contratado, una
@@ -239,7 +267,8 @@ Esa protección se reconstruye en dos capas que corren **siempre juntas**:
 | Perfiles | Todo | Lectura de todos | Solo el suyo (sin cambiar rol ni estado) |
 | Catálogos y disponibilidad | Escritura | Lectura | Lectura |
 | Contenido del Home | Escritura | Lectura pública | Lectura pública |
-| Reservaciones | Todo | Lectura de todas | Crear y leer las suyas |
+| Propiedades (`/api/propiedades/`) | Lectura pública (misma API; escritura solo desde el admin de Django, ver §9) | Lectura pública | Lectura pública |
+| Reservaciones | Todo | Lectura de todas | Crear y leer las suyas — crear exige `PropertyAccessGrant` si la propiedad es `INVITE_ONLY` (§5, regla 5) |
 | Servicios contratados | Todo | Lectura de todos | Crear/leer los suyos; borrarlos solo mientras la estadía siga activa |
 | Pagos | Todo | Lectura | Lectura de los suyos |
 
@@ -257,11 +286,13 @@ corto a dejar el panel sin acceso).
 /api/usuarios/                           CRUD de perfiles
 /api/usuarios/me/                        Perfil de la sesión (GET, PATCH)
 
-/api/propiedades/configuracion/          Tarifa por noche y depósito
+/api/propiedades/configuracion/          Tarifa por noche y depósito (Tenant 0, heredado de la casa única)
 /api/propiedades/tarifas/                Tipos de tarifa
 /api/propiedades/fotos/                  Carrusel del Home
 /api/propiedades/amenidades/categorias/  Amenidades agrupadas y ordenadas
 /api/propiedades/servicios-info/         Tarjetas de servicios del Home
+/api/propiedades/                        Catálogo de propiedades (solo activas), lectura pública — §9
+/api/propiedades/<slug>/                 Detalle de una propiedad + `user_has_access` — §9
 
 /api/proveedores/masajistas/             Catálogo de masajistas
 
@@ -271,7 +302,7 @@ corto a dejar el panel sin acceso).
 /api/servicios/spa/disponibilidad/       Bloques (?masseuse=&desde=&hasta=)
 /api/servicios/comida/disponibilidad/    Días habilitados (?desde=&hasta=)
 
-/api/reservaciones/reservaciones/        Estadías (?status=&payment_status=)
+/api/reservaciones/reservaciones/        Estadías (?status=&payment_status=) — payload/respuesta multi-tenant, §9
 /api/reservaciones/reservaciones/ocupadas/   Rangos activos (pendiente + confirmada), para el calendario
 /api/reservaciones/spa/                  Sesiones de spa contratadas
 /api/reservaciones/comida/               Servicios de cocina contratados
@@ -309,7 +340,129 @@ los datos existentes migren sin reescribir llaves). Las diferencias son:
 
 ---
 
-## 9. Pendiente
+## 9. Multi-tenant: propiedades, proveedores y aislamiento por propiedad
+
+El sistema dejó de modelar "una sola casa" para modelar un marketplace: varios
+proveedores, cada uno dueño de una o más propiedades. La migración de datos que
+introdujo esto convirtió la Casa Brava original en la primera fila real de este
+esquema — el **Tenant 0** — para que nada de lo que ya existía se rompiera.
+
+### Modelos nuevos (`propiedades/models.py`)
+
+| Modelo | Qué es | Notas |
+| --- | --- | --- |
+| `SupplierProfile` | Datos de negocio de un proveedor: `business_name`, `stripe_account_id` (vacío hasta que exista cobro real), `commission_rate` (default `10.00`), `is_active`. | 1:1 con `Usuario` — sigue siendo una cuenta de sesión normal (rol `holder`/`SUPPLIER`), esto solo agrega lo que necesita para operar en el marketplace. |
+| `Property` | Una propiedad rentable, dueña de un `SupplierProfile`. `slug` único, `access_type` (`OPEN` o `INVITE_ONLY`, default `OPEN`), `require_identity_verification`, `base_price_per_night`, `security_deposit`, `cleaning_fee`, `max_guests`, `is_active`. | `PropertySettings` no se eliminó: sigue siendo la única fuente de `nightly_rate`/`security_deposit` que usa `calcular_total_estadia` (ver §5). No se migró a `Property.base_price_per_night` todavía — ese campo hoy es informativo, no alimenta el cálculo del total. |
+| `PropertyAccessGrant` | Otorga a un `Usuario` acceso explícito a una `Property` `INVITE_ONLY`. `unique_together=(property, user)`, `granted_at` (auto). | Sin grant, `crear_reservacion` rechaza con 403 (§5, regla 5). Una propiedad `OPEN` no necesita ninguno. |
+
+`RoleType` (en `usuarios/models.py`) ahora expone `SUPERADMIN`/`SUPPLIER`/`GUEST`
+como nombres canónicos sobre los mismos valores almacenados que `ADMIN`/`HOLDER`/
+`GUEST` (mismo string en la base — `ADMIN`/`HOLDER` quedan como alias de Python
+del mismo miembro), así que ningún dato ni comparación existente cambió.
+`Usuario.is_verified` es una propiedad nueva, siempre `False` hasta que exista
+el módulo KYC.
+
+### Tenant 0
+
+La migración de datos `reservaciones.0004_tenant_zero_data_migration` (y,
+redundantemente, `seed_demo`) crean:
+
+* Un `SupplierProfile` para `admin@test.com` (`business_name="Casa Brava"`).
+* La propiedad `Property(slug="casa-brava", access_type="INVITE_ONLY",
+  base_price_per_night=4500.00)`.
+* Todas las reservaciones preexistentes reasignadas a esa propiedad.
+* Un `PropertyAccessGrant` a esa propiedad para `maria.gomez@example.com` y
+  `carlos.ruiz@example.com`, para que conserven el acceso que ya tenían.
+
+`reservaciones.services._propiedad_tenant_cero()` (`Property.objects.get(slug=
+"casa-brava")`) es el fallback que usa `crear_reservacion` cuando el payload no
+especifica propiedad — ver la siguiente sección.
+
+### `GET /api/propiedades/` y `GET /api/propiedades/<slug>/`
+
+Nuevo `PropertyViewSet` (`ReadOnlyModelViewSet`, `propiedades/views.py`),
+montado con prefijo vacío en `propiedades/urls.py` — **después** de los demás
+`router.register(...)` de esa app, porque su ruta de detalle usa un patrón
+"cualquier segmento" (`<slug>`) que interceptaría rutas literales como
+`configuracion/` o `tarifas/` si se registrara antes.
+
+* Lectura pública (`AllowAny`) en ambos: el catálogo de propiedades no es dato
+  sensible. Solo lista propiedades `is_active=True`.
+* Listado → `PropertySerializer`: `id`, `name`, `slug`, `access_type`,
+  `base_price_per_night`, `max_guests`, `is_active`. Paginado (50 por página,
+  como el resto de los catálogos) — usar `fetchAllPages`/`serverFetchAll` desde
+  el frontend, no solo `.results`.
+* Detalle → `PropertyDetailSerializer`: agrega `description`,
+  `require_identity_verification`, `security_deposit`, `cleaning_fee`,
+  `supplier` (anidado mínimo: `id`, `business_name`) y **`user_has_access`**
+  (booleano, `SerializerMethodField`): `True` siempre si `access_type == OPEN`;
+  si es `INVITE_ONLY`, evalúa `PropertyAccessGrant` contra `request.user` —
+  `False` para un visitante anónimo o un huésped sin grant, sin lanzar error
+  (es información de solo lectura, no un guard: el guard real vive en
+  `crear_reservacion`).
+* Alta/edición/baja de propiedades **no está expuesta por API todavía** — sigue
+  siendo trabajo del admin de Django (`/admin/`, ver más abajo), igual que la
+  disponibilidad de spa/cocina y los paquetes de vino.
+
+### Cambios en `/api/reservaciones/reservaciones/`
+
+**Respuesta** (`ReservationSerializer`) — dos adiciones:
+
+* `property`: representación mínima (`id`, `name`, `slug`) de la propiedad de
+  la reservación — no la ficha completa de `/api/propiedades/`, que trae precio
+  y aforo, irrelevantes aquí.
+* Los cinco campos financieros del modelo multi-tenant: `accommodation_total`,
+  `services_total`, `platform_fee`, `supplier_payout`, `grand_total`. Hoy
+  `crear_reservacion` solo iguala `accommodation_total` y `grand_total` a
+  `total_amount`; el resto queda en `0.00` hasta que exista reparto real de
+  comisión/payout (Stripe Connect, pendiente — ver §10). **`gran_total`**
+  (la propiedad calculada del modelo, `total_amount + subtotal_servicios`)
+  sigue expuesta sin cambios y es, hoy, la fuente de verdad que usa el panel —
+  no confundir con el campo nuevo `grand_total` (columna, todavía no poblada
+  con el desglose de servicios).
+
+**Payload de alta** (`ReservationCreateSerializer`) — dos campos nuevos,
+opcionales y equivalentes entre sí:
+
+* `property_id`: UUID de la propiedad (`PrimaryKeyRelatedField`).
+* `property_slug`: su slug (`SlugRelatedField`).
+
+Si no se manda ninguno, la vista no pasa `propiedad` a `crear_reservacion`, que
+cae al fallback de Tenant 0 — **el mismo comportamiento que tenía el sistema
+antes del modelo multi-tenant**, así que el frontend actual (que no manda
+ninguno de los dos) sigue funcionando sin cambios. Solo propiedades
+`is_active=True` son un destino válido en ambos campos.
+
+Si la propiedad resuelta es `INVITE_ONLY` y el huésped no tiene
+`PropertyAccessGrant`, la petición responde **403** (ver §5, regla 5, y
+"Errores de dominio → HTTP" más arriba) — nunca crea la reservación.
+
+### Bloqueo pesimista acotado por propiedad
+
+Ver §5, reglas 1 y 2, en detalle. En una frase: `select_for_update()` ya no
+bloquea la fila única de `PropertySettings` (que serializaba *todo* el sistema
+a la vez) sino la fila de la `Property` reservada — `_bloquear_propiedad`,
+`Property.objects.select_for_update().get(pk=propiedad.pk)`. Dos huéspedes
+reservando fechas en propiedades distintas nunca se esperan entre sí; dos
+huéspedes reservando la misma propiedad sí, exactamente como antes.
+
+### Panel de administración de Django
+
+`propiedades/admin.py` registra los tres modelos nuevos — es, por ahora, la
+**única** forma de dar de alta o editar una propiedad, un proveedor o un
+grant (no hay UI en `/admin/catalogos` del frontend para esto todavía):
+
+* `SupplierProfileAdmin`: `business_name`, `user`, `commission_rate`,
+  `is_active`; busca por `business_name` y correo del usuario.
+* `PropertyAdmin`: `name`, `slug`, `access_type`, `base_price_per_night`,
+  `is_active`; filtros por `access_type`/`is_active`; busca por `name`/`slug`;
+  `slug` se auto-sugiere desde `name` al crear.
+* `PropertyAccessGrantAdmin`: `property`, `user`, `granted_at`; filtro por
+  `property`; busca por correo del usuario.
+
+---
+
+## 10. Pendiente
 
 * **Stripe.** El punto de enganche ya existe: `pagos.services.registrar_pago`
   asienta el movimiento y deriva el estado. Falta que el webhook lo llame con el

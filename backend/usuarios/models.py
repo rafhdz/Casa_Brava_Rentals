@@ -18,11 +18,27 @@ from django.db import models
 
 
 class RoleType(models.TextChoices):
-    """Equivalente del ENUM `public.role_type`."""
+    """Equivalente del ENUM `public.role_type`.
 
-    ADMIN = "admin", "Administrador"
-    HOLDER = "holder", "Titular"
+    Nomenclatura multi-tenant (SUPERADMIN/SUPPLIER) sobre los mismos valores
+    de almacenamiento ("admin"/"holder") ya existentes en la base: ADMIN y
+    HOLDER quedan como alias de Python del mismo miembro (misma `value`), así
+    que ningún dato ni comparación existente (`permissions.py`, `seed_demo.py`,
+    serializers) necesita cambiar. GUEST no se renombra por ahora.
+    """
+
+    SUPERADMIN = "admin", "Super Administrador"
+    SUPPLIER = "holder", "Proveedor"
     GUEST = "guest", "Huésped"
+
+
+# Alias retrocompatibles: no se declaran dentro de la clase porque
+# `enum.unique()` (que Django aplica a todo TextChoices) prohíbe dos miembros
+# con el mismo valor. Se asignan después, apuntando al mismo objeto miembro,
+# así que `RoleType.ADMIN is RoleType.SUPERADMIN` y ambos comparan igual
+# contra el valor almacenado en la base ("admin").
+RoleType.ADMIN = RoleType.SUPERADMIN
+RoleType.HOLDER = RoleType.SUPPLIER
 
 
 class ProfileStatus(models.TextChoices):
@@ -120,3 +136,8 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     @property
     def es_guest(self):
         return self.role == RoleType.GUEST
+
+    @property
+    def is_verified(self):
+        """Estado KYC. Siempre `False` hasta que exista el módulo de verificación."""
+        return False

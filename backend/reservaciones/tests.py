@@ -18,7 +18,14 @@ from rest_framework.test import APIClient
 
 from pagos.models import PaymentStatus
 from pagos.services import registrar_pago
-from propiedades.models import FareType, PropertySettings
+from propiedades.models import (
+    FareType,
+    Property,
+    PropertyAccessGrant,
+    PropertyAccessType,
+    PropertySettings,
+    SupplierProfile,
+)
 from proveedores.models import SpaMasseuse
 from reservaciones import services
 from reservaciones.models import Reservation, ReservationStatus, SpaBooking
@@ -61,6 +68,26 @@ class BaseDominio(TestCase):
             apellido_paterno="Ruiz",
         )
         cls.masajista = SpaMasseuse.objects.create(name="Lucía")
+
+        # Tenant 0: mismo slug que usa el fallback de
+        # `services._propiedad_tenant_cero`, así que todo `crear_reservacion`
+        # que no especifique `propiedad` cae aquí. INVITE_ONLY con ambos
+        # huéspedes ya invitados, igual que deja `seed_demo`.
+        cls.supplier_profile = SupplierProfile.objects.create(
+            user=cls.admin, business_name="Casa Brava"
+        )
+        cls.propiedad = Property.objects.create(
+            supplier=cls.supplier_profile,
+            name="Casa Brava",
+            slug="casa-brava",
+            access_type=PropertyAccessType.INVITE_ONLY,
+            base_price_per_night=cls.configuracion.nightly_rate,
+            security_deposit=cls.configuracion.security_deposit,
+            cleaning_fee=Decimal("0.00"),
+            max_guests=10,
+        )
+        PropertyAccessGrant.objects.create(property=cls.propiedad, user=cls.huesped)
+        PropertyAccessGrant.objects.create(property=cls.propiedad, user=cls.otro_huesped)
 
 
 class CalculoDeTotalTests(BaseDominio):
@@ -140,6 +167,97 @@ class SolapamientoTests(BaseDominio):
         services.eliminar_reservacion(reservacion.pk)
         self.assertTrue(Reservation.objects.filter(pk=reservacion.pk).exists())
         self.assertFalse(Reservation.objects.vigentes().filter(pk=reservacion.pk).exists())
+
+
+class MultiTenantTests(BaseDominio):
+    """Aislamiento entre propiedades y gobernanza `INVITE_ONLY`."""
+
+    def _crear_propiedad(self, slug, access_type=PropertyAccessType.OPEN):
+        return Property.objects.create(
+            supplier=self.supplier_profile,
+            name=f"Propiedad {slug}",
+            slug=slug,
+            access_type=access_type,
+            base_price_per_night=Decimal("3000.00"),
+            security_deposit=Decimal("500.00"),
+            cleaning_fee=Decimal("0.00"),
+            max_guests=6,
+        )
+
+    def test_mismas_fechas_en_propiedades_distintas_no_chocan(self):
+        """Dos propiedades no comparten calendario: los mismos días no son un
+        solapamiento si son de dueños/propiedades distintos."""
+        otra_propiedad = self._crear_propiedad("casa-azul")
+
+        reservacion_1 = services.crear_reservacion(
+            guest=self.huesped,
+            propiedad=self.propiedad,
+            check_in=HOY + timedelta(days=100),
+            check_out=HOY + timedelta(days=105),
+            fare_type=self.tarifa,
+            status=ReservationStatus.CONFIRMADA,
+        )
+        reservacion_2 = services.crear_reservacion(
+            guest=self.otro_huesped,
+            propiedad=otra_propiedad,
+            check_in=HOY + timedelta(days=100),
+            check_out=HOY + timedelta(days=105),
+            fare_type=self.tarifa,
+            status=ReservationStatus.CONFIRMADA,
+        )
+
+        self.assertNotEqual(reservacion_1.property_id, reservacion_2.property_id)
+        self.assertEqual(reservacion_1.check_in, reservacion_2.check_in)
+        self.assertEqual(reservacion_1.check_out, reservacion_2.check_out)
+
+    def test_invite_only_rechaza_sin_grant(self):
+        propiedad_privada = self._crear_propiedad(
+            "villa-privada", access_type=PropertyAccessType.INVITE_ONLY
+        )
+        with self.assertRaises(services.AccesoRestringidoError):
+            services.crear_reservacion(
+                guest=self.huesped,
+                propiedad=propiedad_privada,
+                check_in=HOY + timedelta(days=110),
+                check_out=HOY + timedelta(days=112),
+                fare_type=self.tarifa,
+            )
+        self.assertFalse(Reservation.objects.filter(property=propiedad_privada).exists())
+
+    def test_invite_only_permite_con_grant(self):
+        propiedad_privada = self._crear_propiedad(
+            "villa-privada", access_type=PropertyAccessType.INVITE_ONLY
+        )
+        PropertyAccessGrant.objects.create(property=propiedad_privada, user=self.huesped)
+
+        reservacion = services.crear_reservacion(
+            guest=self.huesped,
+            propiedad=propiedad_privada,
+            check_in=HOY + timedelta(days=110),
+            check_out=HOY + timedelta(days=112),
+            fare_type=self.tarifa,
+        )
+        self.assertEqual(reservacion.property_id, propiedad_privada.pk)
+
+    def test_open_no_exige_grant(self):
+        propiedad_abierta = self._crear_propiedad("casa-abierta", access_type=PropertyAccessType.OPEN)
+        reservacion = services.crear_reservacion(
+            guest=self.huesped,
+            propiedad=propiedad_abierta,
+            check_in=HOY + timedelta(days=115),
+            check_out=HOY + timedelta(days=117),
+            fare_type=self.tarifa,
+        )
+        self.assertEqual(reservacion.property_id, propiedad_abierta.pk)
+
+    def test_reservacion_sin_propiedad_cae_en_tenant_cero(self):
+        reservacion = services.crear_reservacion(
+            guest=self.huesped,
+            check_in=HOY + timedelta(days=120),
+            check_out=HOY + timedelta(days=122),
+            fare_type=self.tarifa,
+        )
+        self.assertEqual(reservacion.property_id, self.propiedad.pk)
 
 
 class InventarioSpaTests(BaseDominio):
@@ -461,6 +579,73 @@ class ApiReservacionesTests(BaseDominio):
         rangos = {(r["check_in"], r["check_out"]) for r in respuesta.data}
         self.assertIn((pendiente.check_in, pendiente.check_out), rangos)
         self.assertIn((confirmada.check_in, confirmada.check_out), rangos)
+
+    def _crear_propiedad_privada(self, slug="villa-privada"):
+        return Property.objects.create(
+            supplier=self.supplier_profile,
+            name="Villa Privada",
+            slug=slug,
+            access_type=PropertyAccessType.INVITE_ONLY,
+            base_price_per_night=Decimal("5000.00"),
+            security_deposit=Decimal("1000.00"),
+            cleaning_fee=Decimal("0.00"),
+            max_guests=8,
+        )
+
+    def test_reservar_invite_only_sin_grant_responde_403(self):
+        """`AccesoRestringidoError` se traduce a 403, no a 409/400: no es una
+        carrera perdida ni un dato inválido, es una operación no autorizada."""
+        propiedad_privada = self._crear_propiedad_privada()
+        self._autenticar(self.huesped)  # sin grant sobre esta propiedad nueva
+        respuesta = self.client.post(
+            self.url,
+            {
+                "check_in": str(HOY + timedelta(days=130)),
+                "check_out": str(HOY + timedelta(days=132)),
+                "fare_type": str(self.tarifa.pk),
+                "property_slug": propiedad_privada.slug,
+            },
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 403, respuesta.data)
+        self.assertFalse(Reservation.objects.filter(property=propiedad_privada).exists())
+
+    def test_reservar_invite_only_con_grant_responde_201(self):
+        propiedad_privada = self._crear_propiedad_privada()
+        PropertyAccessGrant.objects.create(property=propiedad_privada, user=self.huesped)
+        self._autenticar(self.huesped)
+        respuesta = self.client.post(
+            self.url,
+            {
+                "check_in": str(HOY + timedelta(days=130)),
+                "check_out": str(HOY + timedelta(days=132)),
+                "fare_type": str(self.tarifa.pk),
+                "property_slug": propiedad_privada.slug,
+            },
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 201, respuesta.data)
+        self.assertEqual(respuesta.data["property"]["slug"], propiedad_privada.slug)
+        self.assertTrue(
+            Reservation.objects.filter(pk=respuesta.data["id"], property=propiedad_privada).exists()
+        )
+
+    def test_reservar_sin_propiedad_usa_tenant_cero(self):
+        """Sin `property_id`/`property_slug` en el payload, cae al fallback de
+        Tenant 0 — el mismo comportamiento que tenía el sistema de una sola
+        casa antes del modelo multi-tenant."""
+        self._autenticar(self.huesped)
+        respuesta = self.client.post(
+            self.url,
+            {
+                "check_in": str(HOY + timedelta(days=135)),
+                "check_out": str(HOY + timedelta(days=137)),
+                "fare_type": str(self.tarifa.pk),
+            },
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 201, respuesta.data)
+        self.assertEqual(respuesta.data["property"]["slug"], "casa-brava")
 
 
 class ApiUsuariosTests(BaseDominio):
