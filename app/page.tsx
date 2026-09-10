@@ -1,66 +1,54 @@
-import Link from "next/link";
-import { publicFetchAll } from "@/lib/api/server";
-import Carousel from "@/components/Carousel";
-import AmenitiesList from "@/components/AmenitiesList";
-import ServiceCard from "@/components/ServiceCard";
-import type { AdditionalServiceInfo, AmenityCategory, PropertyPhoto } from "@/lib/api/types";
+import { Lock } from "lucide-react";
+import InviteCodeForm from "@/components/InviteCodeForm";
+import PropertyDirectory from "@/components/PropertyDirectory";
+import { PROPERTIES } from "@/lib/mock/marketplace-data";
 
-// El contenido del Home (fotos, amenidades y tarjetas de servicios) es de
-// lectura pública en el backend, así que se pide con `publicFetchAll`: manda
-// el token si hay sesión, pero no la exige. Los tres endpoints declaran
-// `pagination_class = None` y devuelven arreglos planos, ya ordenados por el
-// `sort_order` que preserva el recorrido curado de la casa — el frontend no
-// reordena nada.
-export default async function HomePage() {
-  const [photos, categories, services] = await Promise.all([
-    publicFetchAll<PropertyPhoto>("/api/propiedades/fotos/"),
-    publicFetchAll<AmenityCategory>("/api/propiedades/amenidades/categorias/"),
-    publicFetchAll<AdditionalServiceInfo>("/api/propiedades/servicios-info/"),
-  ]);
+// Landing territorial pública de Parras Home Hub. Sin fetch de servidor: el
+// directorio es 100% mock (ver lib/mock/marketplace-data.ts) porque el
+// backend real (Django) todavía solo conoce una propiedad — Casa Brava, cuya
+// fachada real vive en app/p/[slug]/page.tsx bajo /p/casa-brava, no aquí.
+export default function HomePage() {
+  const inviteOnlyProperties = PROPERTIES.filter((property) => property.accessType === "INVITE_ONLY");
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 py-10 sm:px-6">
-      <section>
-        <Carousel photos={photos} />
-      </section>
-
-      <section className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-neutral-900 sm:text-3xl">
-            Casa Brava
+    <div className="flex flex-col">
+      <section className="border-b border-neutral-200 bg-neutral-50">
+        <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 pt-16 text-center sm:px-6 sm:pt-24">
+          <h1 className="text-3xl font-semibold text-neutral-900 sm:text-5xl">
+            Te ofrecemos una puerta a uno de los destinos turísticos más
+            importantes del Norte del país
           </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Casa de 7 habitaciones en el corazón de Parras de la Fuente, ideal
-            para grupos y parejas.
+          <p className="max-w-2xl text-base text-neutral-600 sm:text-lg">
+            Hospedaje curado en Parras de la Fuente, Coahuila — cuna del vino
+            mexicano. Casas abiertas al público y residencias exclusivas de
+            acceso por invitación, en un mismo directorio.
           </p>
         </div>
-        <Link
-          href="/reservar"
-          className="rounded-full bg-neutral-900 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-neutral-700"
-        >
-          Reservar ahora
-        </Link>
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold text-neutral-900">
-          Amenidades de la casa
-        </h2>
-        <div className="mt-4">
-          <AmenitiesList categories={categories} />
+        <div className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 sm:pb-24">
+          <PropertyDirectory properties={PROPERTIES} />
         </div>
       </section>
 
-      <section>
-        <h2 className="text-lg font-semibold text-neutral-900">
-          Servicios adicionales
-        </h2>
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((service) => (
-            <ServiceCard key={service.id} service={service} />
-          ))}
-        </div>
-      </section>
+      {inviteOnlyProperties.length > 0 && (
+        <section className="border-t border-neutral-200 bg-neutral-50">
+          <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-4 py-14 text-center sm:px-6">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-900 text-white">
+              <Lock className="h-5 w-5" strokeWidth={2} aria-hidden />
+            </span>
+            <h2 className="text-xl font-semibold text-neutral-900 sm:text-2xl">
+              ¿Ya tienes acceso a una residencia exclusiva?
+            </h2>
+            <p className="max-w-xl text-sm text-neutral-600">
+              Algunas propiedades de Parras Home Hub son de acceso privado.
+              Si un anfitrión te compartió un código de invitación, canjéalo
+              aquí para ir directo a su propiedad.
+            </p>
+            <div className="w-full max-w-md">
+              <InviteCodeForm variant="callout" />
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

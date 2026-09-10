@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -55,7 +56,10 @@ export default function LoginPage() {
       return;
     }
 
-    router.push(role === "admin" ? "/admin" : "/");
+    // "/" ya no es el home del huésped (es la landing pública del
+    // marketplace) — un huésped inicia sesión en la fachada real de Casa
+    // Brava, /p/<TENANT_ZERO_SLUG>.
+    router.push(role === "admin" ? "/admin" : `/p/${TENANT_ZERO_SLUG}`);
     router.refresh();
   }
 

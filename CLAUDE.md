@@ -4,7 +4,7 @@ Memoria técnica del proyecto para futuras interacciones con IA. Léelo antes de
 
 ## Qué es este proyecto
 
-Sistema de reservaciones para una casa privada de renta ("Casa Brava Rentals"), de acceso exclusivo por invitación.
+Casa Brava Rentals nació como el sistema de reservaciones de una sola casa privada de renta, de acceso exclusivo por invitación. Desde la Fase 4 del plan de producto, ese sistema vive **dentro** de un marketplace territorial más grande, **Parras Home Hub (PHH)**: un directorio público de hospedaje en Parras de la Fuente, Coahuila, con propiedades de acceso abierto y propiedades exclusivas por invitación (Casa Brava es la primera de estas últimas). Ver "Arquitectura multi-tenant (Fase 4 — Parras Home Hub)" más abajo para el detalle completo — es lectura obligatoria antes de tocar rutas, el Navbar/Footer o `middleware.ts`.
 
 **Arquitectura desacoplada en dos piezas que corren por separado:**
 
@@ -18,6 +18,44 @@ El frontend **no tiene base de datos ni ORM propio**. Todo dato de negocio —pe
 El único flujo todavía simulado es el **procesamiento de pagos**: el botón de pago redirige a una página de éxito sin cobrar nada real (ver "Integración futura planeada").
 
 > **Regla de oro de esta arquitectura:** el frontend no reimplementa reglas de negocio. La validación de fechas, la detección de solapamiento, el cálculo de montos y el control de inventario del spa corren en el backend, dentro de transacciones con bloqueo de fila. Duplicar esas reglas aquí no solo sería código repetido: sería **inseguro**, porque dos peticiones concurrentes pueden pasar una verificación hecha en el cliente y aun así chocar entre sí.
+
+---
+
+## Arquitectura multi-tenant (Fase 4 — Parras Home Hub)
+
+El backend (Django) sigue siendo de **una sola propiedad**: no sabe nada de un marketplace, de otros anfitriones ni de códigos de invitación. Todo lo territorial (landing pública, directorio de propiedades, portal de anfitrión) es una capa **100% frontend y 100% mock**, construida para no bloquear el diseño del producto en el trabajo de backend multi-tenant que todavía no existe. Casa Brava se re-etiqueta como **"Tenant 0"**: la única propiedad respaldada por datos reales, servida bajo `/p/casa-brava/**`.
+
+### La capa mock y su frontera con `lib/api/`
+
+- **[lib/types/marketplace.ts](lib/types/marketplace.ts)** — `Property`, `AccessType`, `AccessGrant`. Deliberadamente separados de los tipos de [lib/api/types.ts](lib/api/types.ts): unos describen lo que devuelve Django (Casa Brava), los otros el directorio mock.
+- **[lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts)** — `TENANT_ZERO_SLUG` (`"casa-brava"`), `PROPERTIES` (4: Casa Brava `INVITE_ONLY` + 3 ficticias `OPEN`), `ACCESS_GRANTS`, y los helpers `getPropertyBySlug`, `isInviteOnlyBySlug`, `validateInviteCode`. Es JS/TS puro, sin ningún import de Node ni de `next/headers` — lo importa `middleware.ts`, que corre en el Edge Runtime en cada navegación, así que un import roto ahí no es un error de tipos sutil, es un 500 en todas las rutas del sitio.
+- **Frontera dura, sin excepciones**: ningún código que atienda una propiedad mock (cualquier slug distinto de `TENANT_ZERO_SLUG`) puede llamar a `checkoutStay`, `checkoutCartServices`, `serverFetch(All)` ni `getActiveReservation`. Esos asumen un backend real con IDs (tarifas, masajistas, menús, vinos) que las propiedades mock no tienen — usarlos con un slug/id inventado produciría un 404/400 real contra Django o, peor, crearía una reservación real a nombre de una propiedad que no existe ahí. Cada archivo bajo `app/p/[slug]/` bifurca explícitamente con `if (slug === TENANT_ZERO_SLUG)` para mantener esta frontera visible en el propio código, no solo en este documento.
+- **Código de invitación ≠ login.** `AccessGrant`/`validateInviteCode` solo *encuentran* una propiedad `INVITE_ONLY` para navegar a `/p/<slug>` — no crean sesión. Si esa propiedad exige sesión (ver guards de ruta), `middleware.ts` la sigue exigiendo después del canje. No es una vía paralela de autenticación.
+
+### Navbar/Footer: despachador por ruta, no por carpeta
+
+PHH (directorio público, sin sesión) y Casa Brava (app de huésped autenticado, con carrito/perfil/logout) son dos productos con audiencias distintas montados bajo el mismo `app/layout.tsx`. En vez de duplicar el layout raíz o mover `/login`, `/carrito`, `/perfil`, `/admin` a un route group nuevo, **`components/Navbar.tsx` y `components/Footer.tsx` son despachadores delgados** que leen `usePathname()`:
+
+- En `/`, `/sobre-nosotros`, `/conoce-parras`, `/supplier` → `MarketplaceNavbar`/`MarketplaceFooter`.
+- En cualquier otra ruta (`/p/**`, `/login`, `/register`, `/carrito`, `/perfil`, `/admin`) → `TenantNavbar`/`TenantFooter`, que son el contenido *exacto* de los antiguos `Navbar.tsx`/`Footer.tsx` movido a archivo propio.
+
+`app/layout.tsx` no cambió: sigue montando un solo `<Navbar/>`/`<Footer/>`. **No mover esta lógica a `layout.tsx` ni a un route group** — es la decisión de arquitectura, no un paso intermedio a "terminar" después.
+
+### `/p/[slug]`: fachada, reservar, servicios y checkout
+
+Cada página bajo `app/p/[slug]/` bifurca por slug:
+
+- **`slug === "casa-brava"`** → la lógica real, movida tal cual desde las antiguas `app/page.tsx`, `app/reservar/page.tsx` y `app/servicios/{spa,comida,vinos}/page.tsx` (mismos fetches, mismos Server Actions, mismos componentes `ReservarForm`/`SpaBookingForm`/`FoodBookingForm`/`WineBookingForm` — solo se actualizaron los `href` internos que apuntaban a `/reservar`/`/servicios/*`).
+- **Cualquier otro slug** (las 3 propiedades `OPEN`) → una versión mock sin ningún fetch al backend: `MockReservarForm` para fechas/huéspedes/resumen, y `ServiceAccessNotice` (reutilizado, sin cambios) para spa/comida/vinos con copy "próximamente" — no se construyó un catálogo mock completo porque eso se leería como funcionalidad real rota.
+- **`/p/[slug]/checkout`** es **aditivo**, no reemplaza el flujo real: para Casa Brava, `ReservarForm`/`CartView` siguen llamando a `checkoutStay`/`checkoutCartServices` y redirigiendo a `/pago-exitoso` exactamente como antes de la Fase 4 — cero riesgo de doble escritura. La ruta `/p/casa-brava/checkout` es una pantalla de **solo lectura** (lee `getActiveReservation()`, muestra `gran_total` ya calculado por el backend) para quien navegue ahí directamente. Para las propiedades `OPEN` es la única pantalla de "pago": recalcula el total con `basePricePerNight` mock a partir de la query string que le pasó `MockReservarForm`, y el botón "Confirmar" solo redirige a `/pago-exitoso` — nunca escribe nada.
+
+### `/supplier`: portal de anfitrión sin mutaciones
+
+`app/supplier/` lista `PROPERTIES` (mock) como "Mis propiedades", con un badge de Stripe Connect y una métrica de ocupación **simulados**, y `SupplierPropertiesTable` (que no escribe nada — sus botones disparan un toast "disponible próximamente"). Esto es la decisión, no un recorte por falta de tiempo: no existe todavía un rol "anfitrión" en el backend (`usuarios.role` solo conoce `admin`/`holder`/`guest`), ni tablas de propiedades por dueño, ni Stripe Connect real. Construir un CRUD que persista contra `localStorage` inventaría un modelo de datos que se tiraría por completo en cuanto el backend soporte multi-tenant — exactamente lo que prohíbe "No reintroducir una capa de datos en el frontend" más abajo.
+
+### Redirects que cambiaron de destino
+
+`/` dejó de ser el "home" de un huésped autenticado — ahora es la landing pública de PHH. Cualquier lugar que antes mandaba a un huésped a `/` después de autenticarse ahora manda a `` `/p/${TENANT_ZERO_SLUG}` ``: el redirect post-login de huésped en `app/login/page.tsx`, el redirect post-registro en `app/register/page.tsx`, el logo de `TenantNavbar`, y los dos `href` hardcodeados de `CartView.tsx` ("Reservar estadía", "Explorar servicios"). `TENANT_ZERO_SLUG` se importa siempre desde `lib/mock/marketplace-data.ts` — no repetir el string `"casa-brava"` a mano en código nuevo.
 
 ---
 
@@ -194,9 +232,9 @@ Consecuencia de diseño: **ningún Client Component habla con Django directament
 
 ### Guards de ruta (en `middleware.ts`)
 
-- Requieren sesión, por prefijo: `/reservar`, `/perfil`, `/carrito`, `/servicios/*`.
-- **`/` (home) también requiere sesión.** Es una ruta de **coincidencia exacta** (`PROTECTED_EXACT_PATHS`), separada de los prefijos a propósito: si `"/"` viviera en la lista de prefijos, `startsWith("/")` haría match de **cualquier** pathname (incluidos `/login` y `/register`) y generaría un bucle de redirección infinito.
-  > ⚠️ En una iteración anterior `/` se dejó pública por error. Se detectó como bug de seguridad —el sistema es de acceso exclusivo por invitación— y se corrigió. Si se vuelve a tocar esta lógica, `/` **debe** quedar protegida.
+- Requieren sesión, por prefijo: `/perfil`, `/carrito`.
+- **`/p/<slug>/**` (fachada + `reservar` + `servicios/*` + `checkout` de una propiedad) requiere sesión si y solo si esa propiedad es `INVITE_ONLY`.** Ya no son prefijos fijos (`/reservar`, `/servicios/*` no existen en la raíz desde la Fase 4): el middleware extrae el `slug` con `PROPERTY_ROUTE_PATTERN` (`^/p/([^/]+)(?:\/|$)`) y llama a `isInviteOnlyBySlug(slug)` de [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — ver "Arquitectura multi-tenant" más abajo para el porqué completo de esta capa mock.
+  > ⚠️ **`/` (home) YA NO requiere sesión, y eso es correcto.** En la arquitectura de una sola propiedad (pre-Fase-4), `/` *era* la fachada de Casa Brava y una iteración anterior la dejó pública por error — un bug de seguridad real, documentado aquí en su momento. Desde la Fase 4, `/` es la landing **pública** del marketplace territorial (Parras Home Hub) y la fachada real de Casa Brava vive en `/p/casa-brava`, que sigue exigiendo sesión (es `INVITE_ONLY`). El bug original sigue igual de cerrado; solo cambió el nombre de la ruta protegida. No vuelvas a agregar `/` a una lista de rutas protegidas pensando que se corrige una regresión — haría eso exactamente: bloquear el acceso público al directorio.
 - `/admin` requiere sesión **y** rol `admin`. La verificación es doble a propósito:
   1. Camino rápido: se lee el claim `role` del token.
   2. Confirmación contra la API (`GET /api/usuarios/me/`), **solo si el claim ya dice `admin`**.
@@ -346,7 +384,8 @@ La documentación completa vive en **[backend/README.md](backend/README.md)**: e
 
 ## Qué NO hacer
 
-- **No reintroducir una capa de datos en el frontend.** Nada de clientes de base de datos, ORM, esquemas versionados en este proyecto ni archivos de contenido hardcodeado tipo `lib/*-data.ts`. El frontend habla HTTP con Django y nada más; la persistencia es responsabilidad exclusiva del backend.
+- **No reintroducir una capa de datos en el frontend para lo que el backend ya modela.** Nada de clientes de base de datos, ORM, ni esquemas versionados en este proyecto. El frontend habla HTTP con Django y nada más; la persistencia de reservaciones, catálogos y contenido de Casa Brava es responsabilidad exclusiva del backend.
+  > La única excepción deliberada es [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) (ver "Arquitectura multi-tenant"): existe precisamente porque el backend **todavía no modela** un marketplace multi-propiedad, y desbloquea el diseño de ese producto sin esperar a que exista. No es un precedente para hardcodear contenido que el backend **sí** modela (precios, amenidades, textos de servicios de Casa Brava siguen viniendo de Django) — y el día que el backend soporte multi-tenant, ese archivo se reemplaza por el fetch real, no crece.
 - **No reimplementar reglas de negocio del backend** (validación de fechas, solapamiento, cálculo de montos, control de inventario) "para dar feedback más rápido". Está bien deshabilitar fechas en un calendario como ayuda de UX, pero esa verificación **no sustituye** a la del servidor y no debe presentarse como si lo hiciera.
 - **No operar aritméticamente sobre los campos decimales sin `toNumber()`** — llegan como string (ver "Capa de acceso a la API").
 - **No leer solo la primera página de una colección**: usar `serverFetchAll`/`fetchAllPages`.

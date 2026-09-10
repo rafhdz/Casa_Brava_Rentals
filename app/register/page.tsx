@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { registerAction } from "@/app/actions/auth";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -143,7 +144,9 @@ export default function RegisterPage() {
       return;
     }
 
-    router.push("/");
+    // El alta siempre es rol "guest" (ver registerAction) — igual que en
+    // login, "/" ya no es su home: aterriza en la fachada real de Casa Brava.
+    router.push(`/p/${TENANT_ZERO_SLUG}`);
     router.refresh();
   }
 

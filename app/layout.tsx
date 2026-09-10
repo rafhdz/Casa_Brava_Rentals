@@ -19,8 +19,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Casa Brava Rentals",
-  description: "Sistema de reservaciones para casa privada — acceso por invitación.",
+  title: "Parras Home Hub",
+  description:
+    "Marketplace de hospedaje en Parras de la Fuente, Coahuila — propiedades abiertas y residencias exclusivas por invitación.",
 };
 
 // Server Component `async`: resuelve la sesión antes del primer render y se

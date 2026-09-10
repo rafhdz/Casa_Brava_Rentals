@@ -6,7 +6,9 @@ Guía práctica para el equipo: dónde vive cada cosa y qué archivo tocar para 
 
 ## 1. Qué es esto
 
-Sistema de reservaciones para una casa privada de renta, de acceso exclusivo por invitación. Un huésped invitado inicia sesión, reserva su estadía, agrega servicios adicionales (spa, comida, vinos) y paga; un administrador gestiona usuarios, reservaciones y catálogos desde su propio panel.
+Casa Brava Rentals es el sistema de reservaciones de una casa privada de renta, de acceso exclusivo por invitación. Un huésped invitado inicia sesión, reserva su estadía, agrega servicios adicionales (spa, comida, vinos) y paga; un administrador gestiona usuarios, reservaciones y catálogos desde su propio panel.
+
+Desde la Fase 4, ese sistema vive bajo `/p/casa-brava` dentro de un directorio público más grande, **Parras Home Hub**, que sirve la landing en `/` y un puñado de propiedades ficticias sin backend propio (ver §3.1 y "Arquitectura multi-tenant" en [CLAUDE.md](CLAUDE.md)).
 
 El proyecto son **dos aplicaciones separadas** que se comunican por HTTP:
 
@@ -105,18 +107,26 @@ Abrir <http://localhost:3000>.
 Casa_Brava_Rentals/
 ├── app/                          Rutas del frontend (App Router)
 │   ├── layout.tsx                Layout raíz: Navbar, Footer, sesión y carrito
-│   ├── page.tsx                  Home (carrusel, amenidades, servicios)
+│   ├── page.tsx                  Landing pública de Parras Home Hub (buscador + directorio)
 │   ├── globals.css               Estilos base y tokens de Tailwind
+│   ├── sobre-nosotros/page.tsx   Misión de Parras Home Hub
+│   ├── conoce-parras/page.tsx    Guía del destino (enoturismo, clima, patrimonio)
 │   ├── login/page.tsx            Inicio de sesión
 │   ├── register/page.tsx         Alta de huésped
 │   ├── perfil/page.tsx           Datos de la sesión y cerrar sesión
-│   ├── reservar/page.tsx         Reservar la estadía
-│   ├── carrito/page.tsx          Carrito de servicios adicionales
-│   ├── pago-exitoso/page.tsx     Confirmación (pago simulado)
-│   ├── servicios/
-│   │   ├── spa/page.tsx          Reservar sesión de spa
-│   │   ├── comida/page.tsx       Reservar servicio de cocina
-│   │   └── vinos/page.tsx        Pedido de vinos
+│   ├── carrito/page.tsx          Carrito de servicios adicionales (solo Casa Brava)
+│   ├── pago-exitoso/page.tsx     Confirmación (pago simulado, cualquier propiedad)
+│   ├── p/[slug]/                 Una propiedad del marketplace (ver §3.1)
+│   │   ├── page.tsx              Fachada — real para "casa-brava", mock para el resto
+│   │   ├── reservar/page.tsx     Selector de fechas + resumen de cobro
+│   │   ├── servicios/
+│   │   │   ├── spa/page.tsx      Reservar SPA (solo real en casa-brava)
+│   │   │   ├── comida/page.tsx   Reservar comida (solo real en casa-brava)
+│   │   │   └── vinos/page.tsx    Pedido de vinos (solo real en casa-brava)
+│   │   └── checkout/page.tsx     Liquidación unificada (mock/revisión, ver CLAUDE.md)
+│   ├── supplier/                 Portal de anfitrión (esqueleto, sin escritura real)
+│   │   ├── layout.tsx            Monta SupplierNav
+│   │   └── page.tsx              "Mis propiedades", Stripe Connect y ocupación (mock)
 │   ├── admin/
 │   │   ├── page.tsx              Panel: usuarios invitados
 │   │   ├── actions.ts            Crear/editar/eliminar usuarios
@@ -128,7 +138,7 @@ Casa_Brava_Rentals/
 │   │       └── actions.ts        CRUD de los cuatro catálogos
 │   └── actions/
 │       ├── auth.ts               Iniciar sesión, registrarse, cerrar sesión
-│       └── checkout.ts           Pagar la estadía y los servicios
+│       └── checkout.ts           Pagar la estadía y los servicios (Casa Brava)
 │
 ├── components/                   Componentes reutilizables (ver §4)
 │
@@ -140,6 +150,10 @@ Casa_Brava_Rentals/
 │   │   ├── jwt.ts                Lectura de los datos del token
 │   │   ├── session.ts            Cookies de sesión
 │   │   └── server.ts             Punto de entrada desde el servidor
+│   ├── types/
+│   │   └── marketplace.ts        Tipos del marketplace mock: Property, AccessGrant
+│   ├── mock/
+│   │   └── marketplace-data.ts   Directorio de propiedades mock + TENANT_ZERO_SLUG
 │   ├── AuthContext.tsx           Sesión disponible para los componentes
 │   ├── CartContext.tsx           Carrito (navegador)
 │   ├── cart-types.ts             Tipos del carrito
@@ -162,24 +176,48 @@ Casa_Brava_Rentals/
     └── pagos/                    Movimientos de cobro
 ```
 
+### 3.1 `app/p/[slug]/` — una propiedad del marketplace
+
+Cada página bajo esta ruta dinámica bifurca según el slug:
+
+- `casa-brava` → contenido real, conectado al backend Django (fue movido tal
+  cual desde las antiguas `app/page.tsx`, `app/reservar/`, `app/servicios/`).
+- Cualquier otro slug (propiedades ficticias de `lib/mock/marketplace-data.ts`)
+  → contenido mock, sin llamadas al backend.
+
+Ver "Arquitectura multi-tenant (Fase 4 — Parras Home Hub)" en
+[CLAUDE.md](CLAUDE.md) para el porqué completo de esta bifurcación y las
+reglas que la mantienen segura (frontera entre `lib/mock/` y `lib/api/`,
+despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
+
 ---
 
 ## 4. Dónde editar los componentes visuales
 
 | Quiero cambiar… | Archivo |
 | --- | --- |
-| Barra superior, logo, botón de carrito | [components/Navbar.tsx](components/Navbar.tsx) |
-| Pie de página | [components/Footer.tsx](components/Footer.tsx) |
+| Cuál Navbar/Footer se muestra en qué ruta (marketplace vs. Casa Brava) | [components/Navbar.tsx](components/Navbar.tsx), [components/Footer.tsx](components/Footer.tsx) — son despachadores por `usePathname()`, ver "Arquitectura multi-tenant" en [CLAUDE.md](CLAUDE.md) |
+| Barra superior de Casa Brava (logo, carrito, perfil, logout) | [components/TenantNavbar.tsx](components/TenantNavbar.tsx) |
+| Pie de página de Casa Brava | [components/TenantFooter.tsx](components/TenantFooter.tsx) |
+| Barra superior del marketplace (PHH) | [components/MarketplaceNavbar.tsx](components/MarketplaceNavbar.tsx) |
+| Pie de página del marketplace (PHH) | [components/MarketplaceFooter.tsx](components/MarketplaceFooter.tsx) |
+| Directorio de propiedades y su filtro por huéspedes | [components/PropertyDirectory.tsx](components/PropertyDirectory.tsx) |
+| Barra de búsqueda flotante (fechas, huéspedes, invitación) | [components/MarketplaceSearchBar.tsx](components/MarketplaceSearchBar.tsx) |
+| Tarjeta de una propiedad en el directorio | [components/PropertyCard.tsx](components/PropertyCard.tsx) |
+| **Agregar/editar/quitar una propiedad del directorio mock** | [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — array `PROPERTIES` |
+| Formulario de reservación mock (propiedades sin backend) | [components/MockReservarForm.tsx](components/MockReservarForm.tsx) |
+| Pestañas del portal de anfitrión | [components/SupplierNav.tsx](components/SupplierNav.tsx) |
+| Tabla "Mis propiedades" del portal de anfitrión | [components/SupplierPropertiesTable.tsx](components/SupplierPropertiesTable.tsx) |
 | Carrusel de fotos (zoom, auto-avance, flechas) | [components/Carousel.tsx](components/Carousel.tsx) |
 | Lista de amenidades | [components/AmenitiesList.tsx](components/AmenitiesList.tsx) |
-| Tarjetas de servicios del Home | [components/ServiceCard.tsx](components/ServiceCard.tsx) |
+| Tarjetas de servicios de la fachada de Casa Brava | [components/ServiceCard.tsx](components/ServiceCard.tsx) |
 | Calendario (estilos de celdas) | [components/Calendar.tsx](components/Calendar.tsx) |
 | Selección de fechas de la estadía | [components/DateRangeSelector.tsx](components/DateRangeSelector.tsx) |
 | Opciones de tarifa | [components/PricingOptions.tsx](components/PricingOptions.tsx) |
 | Resumen de cobro de la estadía | [components/BookingSummary.tsx](components/BookingSummary.tsx) |
-| Formulario de la estadía completo | [components/ReservarForm.tsx](components/ReservarForm.tsx) |
+| Formulario de la estadía completo (Casa Brava, real) | [components/ReservarForm.tsx](components/ReservarForm.tsx) |
 | Formularios de spa / comida / vinos | `components/SpaBookingForm.tsx`, `FoodBookingForm.tsx`, `WineBookingForm.tsx` |
-| Aviso de "sin acceso" en `/servicios/*` (admin, o sin estadía activa) | [components/ServiceAccessNotice.tsx](components/ServiceAccessNotice.tsx) |
+| Aviso de "sin acceso" en `/p/[slug]/servicios/*` (admin, sin estadía activa, o propiedad sin ese servicio) | [components/ServiceAccessNotice.tsx](components/ServiceAccessNotice.tsx) |
 | Carrito y sus renglones | [components/CartView.tsx](components/CartView.tsx), [components/CartItemRow.tsx](components/CartItemRow.tsx) |
 | Tabla de usuarios del panel | [components/UsersTable.tsx](components/UsersTable.tsx) |
 | Tabla de reservaciones del panel | [components/ReservationsTable.tsx](components/ReservationsTable.tsx) |
@@ -198,19 +236,20 @@ Ningún texto, precio ni imagen de negocio está escrito en el código del front
 
 | Contenido | Dónde se edita | Dónde se ve |
 | --- | --- | --- |
-| **Tipos de tarifa y su recargo** | **`/admin/catalogos` → Tipos de tarifa** | `/reservar` y panel |
-| **Masajistas** | **`/admin/catalogos` → Masajistas** | `/servicios/spa` |
-| **Menús y precio por persona** | **`/admin/catalogos` → Menús** | `/servicios/comida` |
-| **Vinos (precio y existencias)** | **`/admin/catalogos` → Vinos** | `/servicios/vinos` |
-| Fotos del carrusel | Django: Fotos de la propiedad | Home |
-| Amenidades y sus categorías | Django: Amenidades / Categorías de amenidades | Home |
-| Tarjetas de servicios adicionales | Django: Información de servicios adicionales | Home |
-| Tarifa por noche y depósito | Django: Configuración de la propiedad | `/reservar` y panel |
-| Días y horarios de spa | Django: Disponibilidad de spa | `/servicios/spa` |
-| Días con servicio de cocina | Django: Disponibilidad de comida | `/servicios/comida` |
-| Paquetes de vinos | Django: Paquetes de vinos | `/servicios/vinos` |
+| **Tipos de tarifa y su recargo** | **`/admin/catalogos` → Tipos de tarifa** | `/p/casa-brava/reservar` y panel |
+| **Masajistas** | **`/admin/catalogos` → Masajistas** | `/p/casa-brava/servicios/spa` |
+| **Menús y precio por persona** | **`/admin/catalogos` → Menús** | `/p/casa-brava/servicios/comida` |
+| **Vinos (precio y existencias)** | **`/admin/catalogos` → Vinos** | `/p/casa-brava/servicios/vinos` |
+| Fotos del carrusel | Django: Fotos de la propiedad | `/p/casa-brava` |
+| Amenidades y sus categorías | Django: Amenidades / Categorías de amenidades | `/p/casa-brava` |
+| Tarjetas de servicios adicionales | Django: Información de servicios adicionales | `/p/casa-brava` |
+| Tarifa por noche y depósito | Django: Configuración de la propiedad | `/p/casa-brava/reservar` y panel |
+| Días y horarios de spa | Django: Disponibilidad de spa | `/p/casa-brava/servicios/spa` |
+| Días con servicio de cocina | Django: Disponibilidad de comida | `/p/casa-brava/servicios/comida` |
+| Paquetes de vinos | Django: Paquetes de vinos | `/p/casa-brava/servicios/vinos` |
+| **Propiedades del directorio** (nombre, precio, capacidad, acceso) | [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — array `PROPERTIES` (mock, no Django) | `/` y `/supplier` |
 
-`seed_demo` **sí carga el contenido del Home** (60 fotos, 11 categorías con 28 amenidades y las 3 tarjetas de servicio), así que una base recién sembrada renderiza el carrusel y las listas del Home con este contenido curado.
+`seed_demo` **sí carga el contenido de la fachada de Casa Brava** (60 fotos, 11 categorías con 28 amenidades y las 3 tarjetas de servicio), así que una base recién sembrada renderiza el carrusel y las listas en `/p/casa-brava` con este contenido curado.
 
 **Imágenes:** los archivos viven en `public/images/` y `public/icons/`. En la base solo se guarda la ruta (por ejemplo `/images/jardin_1.jpeg`). Para agregar una foto: copiar el archivo a `public/images/` y crear el registro con esa ruta.
 
@@ -233,12 +272,14 @@ El token caduca (60 minutos por defecto). Cuando eso pasa, [middleware.ts](middl
 
 | Ruta | Requisito |
 | --- | --- |
-| `/` (Home) | Sesión activa |
-| `/reservar`, `/perfil`, `/carrito`, `/servicios/*` | Sesión activa |
+| `/` (landing de Parras Home Hub) | **Pública** — sin sesión |
+| `/p/<slug>/**` (fachada, reservar, servicios, checkout de una propiedad) | Sesión activa solo si esa propiedad es de acceso por invitación (hoy, solo `casa-brava`) |
+| `/perfil`, `/carrito` | Sesión activa |
 | `/admin` y `/admin/*` | Sesión activa **y** rol de administrador |
 | `/login`, `/register` | Abiertas — son la puerta de entrada |
+| `/sobre-nosotros`, `/conoce-parras`, `/supplier` | Públicas |
 
-Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin rol de administrador, `/admin` redirige al Home.
+Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin rol de administrador, `/admin` redirige a `/`.
 
 ### Roles
 
@@ -256,7 +297,7 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 
 ## 7. Los flujos principales, paso a paso
 
-### Reservar la estadía (`/reservar`)
+### Reservar la estadía (`/p/casa-brava/reservar`)
 
 1. La página pide al backend las tarifas, la configuración de cobro y las fechas ya ocupadas.
 2. La persona elige fechas en el calendario (los rangos ocupados aparecen deshabilitados) y un tipo de tarifa.
@@ -264,11 +305,13 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 4. Al pulsar "Proceder al pago" se crea la reservación en el backend, que **recalcula el monto por su cuenta** y verifica que las fechas no choquen con otra reserva **activa** (pendiente o confirmada) — la reservación nueva nace en `pendiente`, así que ya cuenta como ocupación del calendario para todos los demás.
 5. Si todo sale bien, va a `/pago-exitoso`. Si las fechas ya estaban tomadas, aparece un aviso y no se crea nada.
 
-### Agregar servicios y pagarlos (`/servicios/*` → `/carrito`)
+> Cualquier otra propiedad del directorio (`/p/<slug>/reservar` con un slug distinto de `casa-brava`) usa un formulario mock que no toca el backend: calcula el mismo resumen con datos de `lib/mock/marketplace-data.ts` y manda a `/p/<slug>/checkout`, donde "Confirmar pago (simulado)" solo redirige a `/pago-exitoso` sin crear nada real.
 
-1. Cada página de servicio (`/servicios/spa`, `/servicios/comida`, `/servicios/vinos`) primero revisa quién entra:
+### Agregar servicios y pagarlos (`/p/casa-brava/servicios/*` → `/carrito`)
+
+1. Cada página de servicio (`/p/casa-brava/servicios/spa`, `/servicios/comida`, `/servicios/vinos`) primero revisa quién entra:
    - Si es **administrador**, no ve el formulario: aparece un aviso de que esa vista es solo para huéspedes.
-   - Si es huésped **sin una estadía activa** (pendiente o confirmada), tampoco ve el formulario: aparece el mismo aviso "Primero debes reservar tu estadía…" con un atajo a `/reservar`, antes de que la persona pierda tiempo llenando nada.
+   - Si es huésped **sin una estadía activa** (pendiente o confirmada), tampoco ve el formulario: aparece el mismo aviso "Primero debes reservar tu estadía…" con un atajo a `/p/casa-brava/reservar`, antes de que la persona pierda tiempo llenando nada.
    - Solo si hay una estadía activa se muestra el formulario.
 2. En spa y comida, el calendario **solo habilita los días de esa estadía** (entre `check_in` y `check_out`, sin contar el día de salida) — no todos los días con disponibilidad general. Vinos no tiene calendario, así que solo aplica el filtro de admin/estadía.
 3. Al elegir lo que se quiere y pulsar "Agregar al carrito", eso **solo guarda en el navegador**; todavía no se reserva nada.

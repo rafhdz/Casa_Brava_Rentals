@@ -9,7 +9,7 @@ export default function PagoExitosoPage() {
       <h1 className="mt-4 text-2xl font-semibold text-neutral-900">¡Reservación confirmada!</h1>
       <p className="mt-2 text-sm text-neutral-500">
         Tu pago fue procesado correctamente (simulado). Recibirás un correo con los detalles de
-        tu estadía en Casa Brava.
+        tu reservación.
       </p>
 
       <Link

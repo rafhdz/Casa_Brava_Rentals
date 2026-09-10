@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_TOKEN_COOKIE, API_BASE_URL, AUTH_ENDPOINTS, REFRESH_TOKEN_COOKIE } from "@/lib/api/config";
 import { decodeJwt, isTokenExpired, secondsUntilExpiry } from "@/lib/api/jwt";
+import { isInviteOnlyBySlug } from "@/lib/mock/marketplace-data";
 import type { RoleType, Usuario } from "@/lib/api/types";
 
 // Nota: Next.js 16 renombró esta convención de archivo a `proxy.ts` (con la
@@ -11,16 +12,37 @@ import type { RoleType, Usuario } from "@/lib/api/types";
 // necesario (hay codemod oficial:
 // `npx @next/codemod@canary middleware-to-proxy .`).
 
-// Rutas (por prefijo) que solo requieren sesión activa.
-const PROTECTED_PREFIXES = ["/reservar", "/perfil", "/carrito", "/servicios"];
-
-// Rutas de coincidencia EXACTA que solo requieren sesión activa. "/" no puede
-// vivir en PROTECTED_PREFIXES: `startsWith("/")` haría match de cualquier
-// pathname —incluidos /login y /register— y generaría un bucle de redirección.
-const PROTECTED_EXACT_PATHS = ["/"];
+// Rutas (por prefijo) que solo requieren sesión activa. "/reservar" y
+// "/servicios" YA NO viven aquí: se movieron bajo /p/[slug]/ y su protección
+// ahora depende del `accessType` de esa propiedad (ver PROPERTY_ROUTE_PATTERN
+// más abajo), no de un prefijo fijo.
+const PROTECTED_PREFIXES = ["/perfil", "/carrito"];
 
 // Ruta que además exige rol de administrador.
 const ADMIN_PREFIX = "/admin";
+
+// Rutas de una propiedad del marketplace: /p/<slug>, /p/<slug>/reservar,
+// /p/<slug>/servicios/*, /p/<slug>/checkout — todo el subárbol.
+//
+// IMPORTANTE — leer antes de tocar esto: "/" YA NO está en ninguna lista de
+// rutas protegidas, y eso es intencional, no una regresión de seguridad. "/"
+// dejó de ser la fachada de Casa Brava (la única propiedad, invitación-only)
+// y ahora es la landing PÚBLICA del marketplace territorial (Parras Home
+// Hub) — ver CLAUDE.md, sección "Arquitectura multi-tenant". La fachada real
+// de Casa Brava vive en /p/casa-brava, y ESA ruta sigue exigiendo sesión
+// abajo, porque `isInviteOnlyBySlug("casa-brava")` es `true`. El bug de
+// seguridad que motivó la regla original de CBR (acceso anónimo a la casa)
+// sigue igual de cerrado; solo cambió el nombre de la ruta protegida. No
+// vuelvas a agregar "/" a una lista de rutas protegidas pensando que se te
+// olvidó — sería redirigir a /login a cualquier visitante público del
+// directorio, y sería exactamente el bug que este comentario previene.
+const PROPERTY_ROUTE_PATTERN = /^\/p\/([^/]+)(?:\/|$)/;
+
+// `isInviteOnlyBySlug` vive en lib/mock/marketplace-data.ts, que corre en
+// este mismo Edge Runtime en cada navegación. Ese archivo no puede importar
+// nada de Node (`fs`, `path`) ni de `next/headers`/`lib/api/server.ts` — un
+// import roto ahí no es un error de tipos sutil, es un 500 en TODAS las
+// rutas del sitio, porque este middleware corre delante de cualquier página.
 
 const ACCESS_FALLBACK_MAX_AGE = 60 * 60;
 const REFRESH_FALLBACK_MAX_AGE = 7 * 24 * 60 * 60;
@@ -100,9 +122,10 @@ async function confirmarRolAdmin(access: string): Promise<boolean> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const propertySlug = pathname.match(PROPERTY_ROUTE_PATTERN)?.[1];
   const isProtectedRoute =
     PROTECTED_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix)) ||
-    PROTECTED_EXACT_PATHS.includes(pathname);
+    (propertySlug !== undefined && isInviteOnlyBySlug(propertySlug));
   const isAdminRoute = matchesPrefix(pathname, ADMIN_PREFIX);
 
   let access = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
@@ -138,8 +161,11 @@ export async function middleware(request: NextRequest) {
   if (haySesion && isAdminRoute) {
     const rol = decodeJwt(access)?.role as RoleType | undefined;
     // Fail closed: cualquier caso ambiguo (rol distinto de "admin", token
-    // ilegible, o la API que no confirma) sale de /admin. Como "/" también
-    // exige sesión y aquí ya hay una válida, este redirect no rebota a /login.
+    // ilegible, o la API que no confirma) sale de /admin. "/" ya no exige
+    // sesión (es la landing pública del marketplace), pero eso no importa
+    // aquí: esta rama solo corre cuando `haySesion` ya es `true`, así que
+    // este redirect manda a alguien CON sesión a la landing, no a un
+    // anónimo — no hay bucle con /login posible.
     if (rol !== "admin" || !(await confirmarRolAdmin(access as string))) {
       return NextResponse.redirect(new URL("/", request.url));
     }

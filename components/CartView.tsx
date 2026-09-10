@@ -8,6 +8,13 @@ import { useCart } from "@/lib/CartContext";
 import CartItemRow from "@/components/CartItemRow";
 import { checkoutCartServices } from "@/app/actions/checkout";
 import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
+
+// El carrito solo existe para Casa Brava (Tenant 0): las 3 propiedades mock
+// del marketplace no tienen backend, así que no tiene sentido pasar un
+// `basePath` por prop todavía — se hardcodea a TENANT_ZERO_SLUG, igual que ya
+// hace TenantNavbar.tsx con el logo.
+const TENANT_HOME = `/p/${TENANT_ZERO_SLUG}`;
 
 export default function CartView() {
   const router = useRouter();
@@ -24,7 +31,7 @@ export default function CartView() {
           id: toastId,
           action:
             result.error === RESERVATION_REQUIRED_ERROR
-              ? { label: "Reservar estadía", onClick: () => router.push("/reservar") }
+              ? { label: "Reservar estadía", onClick: () => router.push(`${TENANT_HOME}/reservar`) }
               : undefined,
         });
         return;
@@ -45,7 +52,7 @@ export default function CartView() {
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         <p className="text-sm text-neutral-500">Tu carrito está vacío.</p>
         <Link
-          href="/"
+          href={TENANT_HOME}
           className="rounded-full bg-neutral-900 px-6 py-2.5 text-sm font-semibold text-white transition-all duration-300 ease-in-out hover:bg-neutral-700 active:scale-95"
         >
           Explorar servicios
