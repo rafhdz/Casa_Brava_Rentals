@@ -14,7 +14,7 @@ import {
   type FareTypeOption,
   type GuestOption,
   type PropertySettingsSummary,
-} from "@/app/admin/reservations/actions";
+} from "@/app/p/casa-brava/owner-panel/reservations/actions";
 
 // new Date(`${value}T00:00:00`) en vez de new Date(value): mismo truco que
 // formatSimulatedDate en lib/format.ts para evitar el bug de zona horaria

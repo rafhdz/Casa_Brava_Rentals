@@ -34,12 +34,25 @@ El backend (Django) sigue siendo de **una sola propiedad**: no sabe nada de un m
 
 ### Navbar/Footer: despachador por ruta, no por carpeta
 
-PHH (directorio público, sin sesión) y Casa Brava (app de huésped autenticado, con carrito/perfil/logout) son dos productos con audiencias distintas montados bajo el mismo `app/layout.tsx`. En vez de duplicar el layout raíz o mover `/login`, `/carrito`, `/perfil`, `/admin` a un route group nuevo, **`components/Navbar.tsx` y `components/Footer.tsx` son despachadores delgados** que leen `usePathname()`:
+PHH (directorio público, sin sesión) y Casa Brava (app de huésped y de gestión, con carrito/perfil/logout) son dos productos con audiencias distintas montados bajo el mismo `app/layout.tsx`. En vez de duplicar el layout raíz o mover `/login`, `/register`, `/admin`, `/carrito`, `/perfil` a un route group nuevo, **`components/Navbar.tsx` y `components/Footer.tsx` son despachadores delgados** que leen `usePathname()`:
 
-- En `/`, `/sobre-nosotros`, `/conoce-parras`, `/supplier` → `MarketplaceNavbar`/`MarketplaceFooter`.
-- En cualquier otra ruta (`/p/**`, `/login`, `/register`, `/carrito`, `/perfil`, `/admin`) → `TenantNavbar`/`TenantFooter`, que son el contenido *exacto* de los antiguos `Navbar.tsx`/`Footer.tsx` movido a archivo propio.
+- En `/`, `/sobre-nosotros`, `/conoce-parras`, `/supplier`, `/login`, `/register`, `/admin` → `MarketplaceNavbar`/`MarketplaceFooter`.
+- En cualquier otra ruta (`/p/**` —incluido `/p/casa-brava/owner-panel/**`—, `/carrito`, `/perfil`) → `TenantNavbar`/`TenantFooter`, que son el contenido *exacto* de los antiguos `Navbar.tsx`/`Footer.tsx` movido a archivo propio.
+
+`/login`, `/register` y `/admin` están en la lista de PHH a propósito, no por descuido: son la puerta de entrada compartida por todo el sitio (o, en el caso de `/admin`, el panel del administrador de *todo* PHH) y deben mostrar la marca del marketplace, no la de Casa Brava — ver "Gestión de logos e identidad visual" más abajo. El panel de gestión de Casa Brava se movió deliberadamente a `/p/casa-brava/owner-panel` (ver "Migración del panel de administración a owner-panel") para que caiga del lado de `TenantNavbar` sin necesitar una excepción propia aquí.
 
 `app/layout.tsx` no cambió: sigue montando un solo `<Navbar/>`/`<Footer/>`. **No mover esta lógica a `layout.tsx` ni a un route group** — es la decisión de arquitectura, no un paso intermedio a "terminar" después.
+
+### Gestión de logos e identidad visual
+
+Dos marcas, dos archivos en `public/icons/system/`: **`PHH_logo.svg`** (Parras Home Hub, el marketplace) y **`CBR_logo.svg`** (Casa Brava Rentals, Tenant 0). El antiguo `logo.svg` genérico ya no existe — se reemplazó por estos dos, sin ambigüedad sobre cuál es cuál.
+
+Regla de visualización, sin excepciones:
+
+- **`CBR_logo.svg`** es exclusivo de `/p/casa-brava/**` — la fachada, `reservar`, `servicios/*`, `checkout` **y** su panel de gestión (`/p/casa-brava/owner-panel/**`).
+- **`PHH_logo.svg`** es para todo lo demás: la landing (`/`), `/sobre-nosotros`, `/conoce-parras`, `/supplier`, `/login`, `/register`, el panel universal `/admin`, y también `/p/<slug>` de cualquier propiedad `OPEN` que **no** sea Casa Brava (`villa-del-vinedo`, `casa-de-la-sierra`, `loft-boutique-centro`).
+
+`MarketplaceNavbar.tsx` es de un solo público (PHH), así que siempre pinta `PHH_logo.svg` sin condicional. `TenantNavbar.tsx` sí necesita decidir en tiempo de render, porque también monta en `/p/<slug>` de las tres propiedades `OPEN` mock (ver "Arquitectura multi-tenant"): calcula `isCasaBravaScope = pathname.startsWith(\`/p/${TENANT_ZERO_SLUG}\`)` y alterna entre `CBR_logo.svg` (con el logo enlazando a `/p/${TENANT_ZERO_SLUG}`) y `PHH_logo.svg` (enlazando a `/`) según ese cálculo — nunca hardcodear el string `"casa-brava"` para esta comparación, usar siempre `TENANT_ZERO_SLUG`. `MarketplaceFooter.tsx`/`TenantFooter.tsx` no muestran ningún logo (solo texto), así que no necesitan este condicional.
 
 ### `/p/[slug]`: fachada, reservar, servicios y checkout
 
@@ -120,7 +133,7 @@ Abrir <http://localhost:3000>.
 
 | Correo | Rol | Qué ve |
 | --- | --- | --- |
-| `admin@test.com` | `admin` | Panel de administración completo |
+| `admin@test.com` | `admin` | Panel de Control PHH (`/admin`) y panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) |
 | `carlos.ruiz@example.com` | `holder` | Experiencia de huésped (lectura ampliada en la API) |
 | `maria.gomez@example.com` | `guest` | Experiencia de huésped |
 
@@ -145,7 +158,7 @@ Abrir <http://localhost:3000>.
 - **Tailwind CSS v4** (configuración basada en CSS vía `@import "tailwindcss"` en [app/globals.css](app/globals.css); no existe `tailwind.config.js`, los tokens se definen con `@theme`).
 - **Sin cliente de base de datos ni ORM**: el acceso a datos es `fetch` nativo contra la API de Django, encapsulado en [lib/api/](lib/api).
 - **Librerías headless permitidas** (ver "Qué NO hacer"): `lucide-react` (íconos del sistema), `react-day-picker` + `date-fns` (calendarios), `sonner` (notificaciones tipo toast). Ninguna trae CSS propio importado — se estilizan 100% con Tailwind vía sus props `classNames`/`className`.
-- **`sonner`** está montado en [app/layout.tsx](app/layout.tsx) como hijo de `<CartProvider>` (junto a `<Navbar />`/`<main>`/`<Footer />`, dentro de `<AuthProvider>`), para que cualquier Client Component pueda llamar a `toast.*` sin volver a montar el `<Toaster />`. Se configuró con `unstyled: true` + `toastOptions.classNames` (no el look "richColors" por defecto) para que el toast se vea como una tarjeta más del sistema — `rounded-2xl`, `border-neutral-200`, `bg-white`, `text-neutral-900`, mismo lenguaje visual que los modales de `UsersTable.tsx`/`ReservationsTable.tsx`. Es la señal de carga/éxito/error de los CRUD de `/admin` y de los flujos de checkout: los botones ya no cambian de texto mientras una Server Action está en vuelo, pero siguen deshabilitados vía `isPending`/`isProcessing` para evitar doble envío.
+- **`sonner`** está montado en [app/layout.tsx](app/layout.tsx) como hijo de `<CartProvider>` (junto a `<Navbar />`/`<main>`/`<Footer />`, dentro de `<AuthProvider>`), para que cualquier Client Component pueda llamar a `toast.*` sin volver a montar el `<Toaster />`. Se configuró con `unstyled: true` + `toastOptions.classNames` (no el look "richColors" por defecto) para que el toast se vea como una tarjeta más del sistema — `rounded-2xl`, `border-neutral-200`, `bg-white`, `text-neutral-900`, mismo lenguaje visual que los modales de `UsersTable.tsx`/`ReservationsTable.tsx`. Es la señal de carga/éxito/error de los CRUD del owner-panel de Casa Brava y de los flujos de checkout: los botones ya no cambian de texto mientras una Server Action está en vuelo, pero siguen deshabilitados vía `isPending`/`isProcessing` para evitar doble envío.
 - Alias de imports: `@/*` apunta a la raíz del proyecto (ver `tsconfig.json`). Usar siempre `@/components/...`, `@/lib/...`, nunca rutas relativas largas (`../../../`).
 
 ## Convenciones de nomenclatura
@@ -166,7 +179,7 @@ Abrir <http://localhost:3000>.
 - **Calendarios** ([components/Calendar.tsx](components/Calendar.tsx), wrapper de `react-day-picker`): cualquier clase pensada para sobreescribir el estilo por defecto de una celda (`outside`, `disabled`, `range_start`/`range_end`/`range_middle`) debe llevar `!important` en **todas** sus propiedades, no solo en la que a simple vista parece necesitarlo. react-day-picker activa varios modificadores a la vez sobre la misma celda (ej. `selected` + `range_start`, u `outside` + `disabled`), y sin forzarlo el orden de generación de Tailwind decide cuál gana, no la clase semánticamente correcta. Para indicadores de disponibilidad día por día (verde disponible / rojo bloqueado) usar el patrón ya establecido en `AVAILABILITY_MODIFIERS_CLASS_NAMES` (exportado desde `Calendar.tsx`, integrado hoy en `SpaBookingForm.tsx`) en vez de inventar uno nuevo por componente.
 - **Fechas ISO nunca se pasan por `new Date("yyyy-MM-dd")`**: se interpreta en UTC y puede desfasar un día según la zona horaria del navegador. Usar `parseISO` de `date-fns`, o `new Date(\`${valor}T00:00:00\`)` cuando no haya `date-fns` a mano (ver `formatSimulatedDate` en [lib/format.ts](lib/format.ts) y `formatDate` en `ReservationsTable.tsx`). Para comparar dos fechas ISO basta comparar los strings: de ancho fijo, ordenan igual lexicográfica que cronológicamente.
 - Componentes reutilizables van en `components/`; las páginas (`app/**/page.tsx`) solo componen esos componentes y manejan estado/routing.
-- **Patrón "page fetch, form interactúa"**: cuando una página necesita datos del backend **y** estado interactivo de cliente, la página es un Server Component `async` que hace el/los `fetch` y pasa los datos por props a un Client Component dedicado en `components/` (ej. `app/reservar/page.tsx` → `components/ReservarForm.tsx`; `app/servicios/spa/page.tsx` → `components/SpaBookingForm.tsx`; `app/admin/reservations/page.tsx` → `ReservationsTable.tsx`). Ninguna página mezcla `"use client"` con un fetch de servidor: si necesita ambas cosas, se separa en dos archivos.
+- **Patrón "page fetch, form interactúa"**: cuando una página necesita datos del backend **y** estado interactivo de cliente, la página es un Server Component `async` que hace el/los `fetch` y pasa los datos por props a un Client Component dedicado en `components/` (ej. `app/reservar/page.tsx` → `components/ReservarForm.tsx`; `app/servicios/spa/page.tsx` → `components/SpaBookingForm.tsx`; `app/p/casa-brava/owner-panel/reservations/page.tsx` → `ReservationsTable.tsx`). Ninguna página mezcla `"use client"` con un fetch de servidor: si necesita ambas cosas, se separa en dos archivos.
 - La protección de rutas por sesión corre en [middleware.ts](middleware.ts), del lado del servidor, antes de que la página renderice. Ninguna página necesita un wrapper de auth en su JSX.
 
 ---
@@ -235,11 +248,12 @@ Consecuencia de diseño: **ningún Client Component habla con Django directament
 - Requieren sesión, por prefijo: `/perfil`, `/carrito`.
 - **`/p/<slug>/**` (fachada + `reservar` + `servicios/*` + `checkout` de una propiedad) requiere sesión si y solo si esa propiedad es `INVITE_ONLY`.** Ya no son prefijos fijos (`/reservar`, `/servicios/*` no existen en la raíz desde la Fase 4): el middleware extrae el `slug` con `PROPERTY_ROUTE_PATTERN` (`^/p/([^/]+)(?:\/|$)`) y llama a `isInviteOnlyBySlug(slug)` de [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — ver "Arquitectura multi-tenant" más abajo para el porqué completo de esta capa mock.
   > ⚠️ **`/` (home) YA NO requiere sesión, y eso es correcto.** En la arquitectura de una sola propiedad (pre-Fase-4), `/` *era* la fachada de Casa Brava y una iteración anterior la dejó pública por error — un bug de seguridad real, documentado aquí en su momento. Desde la Fase 4, `/` es la landing **pública** del marketplace territorial (Parras Home Hub) y la fachada real de Casa Brava vive en `/p/casa-brava`, que sigue exigiendo sesión (es `INVITE_ONLY`). El bug original sigue igual de cerrado; solo cambió el nombre de la ruta protegida. No vuelvas a agregar `/` a una lista de rutas protegidas pensando que se corrige una regresión — haría eso exactamente: bloquear el acceso público al directorio.
-- `/admin` requiere sesión **y** rol `admin`. La verificación es doble a propósito:
+- `/admin` — el Panel de Control de **todo PHH** — requiere sesión **y** rol `admin`. La verificación es doble a propósito:
   1. Camino rápido: se lee el claim `role` del token.
   2. Confirmación contra la API (`GET /api/usuarios/me/`), **solo si el claim ya dice `admin`**.
 
-  El segundo paso no es redundante. El middleware **no verifica firmas**, así que cualquiera puede fabricar un token que declare `role: "admin"`. Ese token no sirve para nada contra Django (toda petición devuelve 401), pero sin la confirmación sí alcanzaría para *entrar* a `/admin` y ver la cáscara de la página. Es *fail closed*: rol distinto de `admin`, token ilegible o API que no responde ⇒ fuera.
+  El segundo paso no es redundante. El middleware **no verifica firmas**, así que cualquiera puede fabricar un token que declare `role: "admin"`. Ese token no sirve para nada contra Django (toda petición devuelve 401), pero sin la confirmación sí alcanzaría para *entrar* a `/admin` y ver la cáscara de la página. Es *fail closed*: rol distinto de `admin`, token ilegible o API que no responde ⇒ fuera de `/admin`, hacia `/`.
+- **`/p/casa-brava/owner-panel/**` — el panel de gestión de Casa Brava** — requiere sesión **y** rol `holder` **o** `admin`, con el mismo patrón de doble verificación (claim rápido + confirmación contra `/api/usuarios/me/` cuando el claim ya declara uno de los dos roles permitidos). No es el mismo guard que `/admin`: ambos comparten el helper `confirmarRol(access, allowedRoles)` en `middleware.ts`, mismo mecanismo, distinta lista de roles permitidos y distinto destino cuando falla — un huésped con sesión que lo intenta vuelve a `/p/${TENANT_ZERO_SLUG}` (la fachada de la propiedad a la que ya sabemos que tiene invitación), no a `/`. El requisito de sesión de esta ruta ya viene cubierto además por el guard `INVITE_ONLY` de arriba (Casa Brava es `INVITE_ONLY`), pero el guard por rol no depende de eso en silencio: seguiría exigiendo sesión aunque esa propiedad dejara de serlo.
 - `/login` y `/register` no están en ninguna lista y deben seguir siendo 100% accesibles sin sesión: son la válvula de escape que evita el bucle.
 
 > **Nota sobre el nombre del archivo:** Next.js 16 renombró esta convención a `proxy.ts` (función exportada como `proxy`), pero sigue reconociendo `middleware.ts` vía compatibilidad hacia atrás. Si se retira ese soporte, renombrar el archivo y la función es el único cambio necesario (hay codemod oficial: `npx @next/codemod@canary middleware-to-proxy .`).
@@ -250,42 +264,54 @@ Consecuencia de diseño: **ningún Client Component habla con Django directament
 
 [app/register/page.tsx](app/register/page.tsx) valida en el cliente (nombre y apellido paterno obligatorios, apellido materno opcional, correo con formato, contraseña de mínimo 8 caracteres que coincida con su confirmación) y llama a `registerAction`.
 
-- La cuenta **siempre** se crea con rol `guest`. Crear `admin`/`holder` es exclusivo del panel de administración.
+- La cuenta **siempre** se crea con rol `guest`. Crear `admin`/`holder` es exclusivo del CRUD de usuarios del panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) — el Panel de Control PHH (`/admin`) es de solo lectura, ver más abajo.
 - El teléfono **sí se persiste** (`phone` en el perfil), a diferencia de iteraciones anteriores donde el campo era decorativo.
 - Los mensajes de error (correo duplicado, contraseña demasiado común o corta) los redacta el backend y llegan ya en español: aquí no hay tabla de traducción.
 - **No hay compensación que mantener.** En la arquitectura anterior el alta eran dos escrituras (cuenta y perfil por separado) y hacía falta revertir la primera si fallaba la segunda, para no dejar un usuario huérfano que bloqueara ese correo. Ahora la cuenta y su perfil son **la misma fila**, creada en una sola petición que pasa entera o no pasa.
 
 ---
 
-## Panel de administración
+## Panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`)
 
-Tres rutas bajo `/admin`, todas protegidas por el mismo guard de rol del
-middleware: usuarios (`/admin`), reservaciones (`/admin/reservations`) y
-catálogos (`/admin/catalogos`).
+Tres rutas bajo `/p/casa-brava/owner-panel`, todas protegidas por el mismo
+guard de rol del middleware (`holder` o `admin` — ver "Guards de ruta"):
+usuarios (`/p/casa-brava/owner-panel`), reservaciones
+(`/p/casa-brava/owner-panel/reservations`) y catálogos
+(`/p/casa-brava/owner-panel/catalogos`).
 
-**Navegación** — [components/AdminNav.tsx](components/AdminNav.tsx) es la barra
-secundaria que las enlaza entre sí, y las tres páginas la montan arriba de su
-contenido. Vive aparte del `Navbar` porque solo tiene sentido dentro de
-`/admin/*`, mientras que el Navbar es global. `/admin` se compara por
-**igualdad** y las otras dos por prefijo: con `startsWith` la pestaña "Usuarios"
-también haría match en `/admin/reservations` y se marcarían dos activas a la vez
-(misma distinción exacta/prefijo que hace `middleware.ts` con `/`). Sustituyó a
-la tarjeta-enlace "Ver reservaciones" que vivía en `/admin` y al `BackButton` de
-`/admin/reservations`, que quedaban duplicados por las pestañas.
+> **Migración del panel de administración a owner-panel.** Hasta la Fase 4
+> este panel vivía en `/admin` (`app/admin/**`, `components/AdminNav.tsx`).
+> Se movió tal cual —mismos componentes, misma lógica, mismos endpoints— a
+> `/p/casa-brava/owner-panel` porque `/admin` pasó a ser el Panel de Control
+> **universal** del administrador de PHH (ver más abajo), y este panel es
+> específico de una sola propiedad: Casa Brava. El único cambio de contenido
+> es el encabezado, ahora "Casa Brava — Panel de gestión", y el renombre de
+> `AdminNav.tsx` a `components/OwnerNav.tsx`. No repetir el string
+> `"casa-brava"` a mano en el código de este panel — usar siempre
+> `TENANT_ZERO_SLUG` (ver `components/OwnerNav.tsx` y `middleware.ts`).
 
-### CRUD de usuarios (`/admin`)
+**Navegación** — [components/OwnerNav.tsx](components/OwnerNav.tsx) es la
+barra secundaria que las enlaza entre sí, y las tres páginas la montan arriba
+de su contenido. Vive aparte del `Navbar` porque solo tiene sentido dentro de
+`/p/casa-brava/owner-panel/*`, mientras que el Navbar es global. La raíz del
+panel se compara por **igualdad** y las otras dos por prefijo: con
+`startsWith` la pestaña "Usuarios" también haría match en
+`.../reservations` y se marcarían dos activas a la vez (misma distinción
+exacta/prefijo que hace `middleware.ts` con `/`).
 
-- **[app/admin/page.tsx](app/admin/page.tsx)** — Server Component `async`: pide la lista de perfiles y la sesión activa en paralelo, y se los pasa a `UsersTable` como `users`/`currentUserId`.
-- **[app/admin/actions.ts](app/admin/actions.ts)** — `createUser`, `updateUser`, `deleteUser`. Las tres devuelven `{ success: true } | { error: string }` (nunca lanzan hacia el caller) y llaman a `revalidatePath("/admin")` al terminar con éxito.
+### CRUD de usuarios (`/p/casa-brava/owner-panel`)
+
+- **[app/p/casa-brava/owner-panel/page.tsx](app/p/casa-brava/owner-panel/page.tsx)** — Server Component `async`: pide la lista de perfiles y la sesión activa en paralelo, y se los pasa a `UsersTable` como `users`/`currentUserId`.
+- **[app/p/casa-brava/owner-panel/actions.ts](app/p/casa-brava/owner-panel/actions.ts)** — `createUser`, `updateUser`, `deleteUser`. Las tres devuelven `{ success: true } | { error: string }` (nunca lanzan hacia el caller) y llaman a `revalidatePath("/p/casa-brava/owner-panel")` al terminar con éxito.
 - **[components/UsersTable.tsx](components/UsersTable.tsx)** — no espeja la prop `users` en estado local: la renderiza tal cual, y el refresco tras una acción llega por el `revalidatePath`. Tres modales (crear / editar / eliminar), cada uno con su propio `useTransition`; los errores se muestran con `toast.error(...)`, no con un párrafo en línea.
 
 **Guards que ya no vive el frontend.** El backend rechaza que un admin cambie su propio rol o estado, y que borre su propia cuenta —el camino más corto para dejar el panel sin acceso—. La UI deshabilita esos controles en la propia fila del admin, pero **el límite real es la API**: la UI es una ayuda, no la protección.
 
-> ⚠️ **Contraseña temporal fija.** `createUser` asigna `DEFAULT_TEMP_PASSWORD` (`"changeme123"`) a toda cuenta creada desde `/admin`. Es la misma para *todas* las cuentas y cualquiera con acceso al código la conoce. Aceptable solo mientras el proyecto siga siendo un sistema de acceso invitado con un puñado de usuarios de confianza, donde el admin comparte la contraseña directamente. **Antes de cualquier despliegue real** hay que reemplazarla por: (a) forzar el cambio en el primer login, (b) generar una aleatoria por usuario y comunicarla fuera de banda, o (c) un flujo de invitación por correo donde la persona elija la suya. El copy del modal ya le avisa al admin cuál es la contraseña, para que sepa qué comunicar.
+> ⚠️ **Contraseña temporal fija.** `createUser` asigna `DEFAULT_TEMP_PASSWORD` (`"changeme123"`) a toda cuenta creada desde este panel. Es la misma para *todas* las cuentas y cualquiera con acceso al código la conoce. Aceptable solo mientras el proyecto siga siendo un sistema de acceso invitado con un puñado de usuarios de confianza, donde el admin comparte la contraseña directamente. **Antes de cualquier despliegue real** hay que reemplazarla por: (a) forzar el cambio en el primer login, (b) generar una aleatoria por usuario y comunicarla fuera de banda, o (c) un flujo de invitación por correo donde la persona elija la suya. El copy del modal ya le avisa al admin cuál es la contraseña, para que sepa qué comunicar.
 
-### CRUD de reservaciones (`/admin/reservations`)
+### CRUD de reservaciones (`/p/casa-brava/owner-panel/reservations`)
 
-Ruta propia, enlazada desde `/admin` con un botón "Ver reservaciones".
+Ruta propia, enlazada desde la raíz del panel con la pestaña "Reservaciones".
 
 - **Dos estados independientes**: `status` (`pendiente` | `confirmada` | `cancelada` | `finalizada`) describe el ciclo de vida operativo; `payment_status` (`pendiente` | `parcial` | `completado` | `reembolsado`) describe el cobro. Están separados —no uno derivado del otro— para poder representar un anticipo sobre una reserva todavía `pendiente` sin acoplar ambos ciclos. El modal los expone como dos `<select>` independientes.
 - **Una sola petición trae todo**: el backend resuelve los JOIN (huésped, tarifa, spa/comida/vinos con su catálogo) y expone además `subtotal_servicios` y `gran_total` ya calculados.
@@ -295,19 +321,33 @@ Ruta propia, enlazada desde `/admin` con un botón "Ver reservaciones".
 - **Toda la lógica de inventario vive ahora en el backend.** Liberar los bloques de spa al cancelar, volver a tomarlos al reactivar (abortando si otro huésped ya los ocupó) y revisar el solapamiento al confirmar corren dentro de la **misma transacción** que aplica el cambio. Eso cierra un hueco real de la arquitectura anterior, donde eran llamadas separadas desde el frontend y un fallo entre una y otra podía dejar el cambio aplicado con el inventario inconsistente.
 - **"Casa Brava" como propiedad estática**: el sistema modela una sola casa, así que la página lo muestra como subtítulo fijo, no como columna repetida en cada fila.
 
-### CRUD de catálogos (`/admin/catalogos`)
+### CRUD de catálogos (`/p/casa-brava/owner-panel/catalogos`)
 
 Cuatro catálogos que antes solo se editaban desde el admin de Django: **tipos de tarifa** (`/api/propiedades/tarifas/`), **masajistas** (`/api/proveedores/masajistas/`), **menús** (`/api/servicios/menus/`) y **vinos** (`/api/servicios/vinos/`). Viven en tres apps distintas del backend, pero comparten la misma clase de permiso (`SoloLecturaAutenticadoEscrituraAdmin`: cualquier sesión lee, solo un admin escribe), así que la página los trata como una sola familia.
 
-- **[app/admin/catalogos/page.tsx](app/admin/catalogos/page.tsx)** — Server Component `async`: cuatro `serverFetchAll` en paralelo (colecciones paginadas de a 50; el catálogo de vinos puede pasar de ahí sin avisar) y la conversión de los decimales con `toNumber()`, para que los componentes de presentación reciban números limpios.
-  - Un fallo se convierte en `null` para pintar el aviso de "backend caído", pero **solo si es un `ApiError`**: cualquier otra excepción se vuelve a lanzar, porque `serverFetchAll` señaliza con `redirect()` cuando la sesión ya no sirve y tragarse esa señal dejaría a la persona mirando un mensaje de error en vez de navegar a `/login`. `app/admin/page.tsx` y `app/admin/reservations/page.tsx` todavía usan un `.catch(() => null)` a secas; el camino es casi inalcanzable porque el middleware ya redirigió antes, pero si se tocan esas páginas conviene igualarlas a este patrón.
-- **[app/admin/catalogos/actions.ts](app/admin/catalogos/actions.ts)** — doce Server Actions (crear/editar/eliminar × cuatro catálogos). Las doce difieren solo en endpoint, cuerpo y mensaje de respaldo; el resto —`revalidatePath("/admin/catalogos")`, devolver `{ success: true } | { error: string }` sin lanzar nunca— vive una sola vez en el helper interno `escribirCatalogo`.
+- **[app/p/casa-brava/owner-panel/catalogos/page.tsx](app/p/casa-brava/owner-panel/catalogos/page.tsx)** — Server Component `async`: cuatro `serverFetchAll` en paralelo (colecciones paginadas de a 50; el catálogo de vinos puede pasar de ahí sin avisar) y la conversión de los decimales con `toNumber()`, para que los componentes de presentación reciban números limpios.
+  - Un fallo se convierte en `null` para pintar el aviso de "backend caído", pero **solo si es un `ApiError`**: cualquier otra excepción se vuelve a lanzar, porque `serverFetchAll` señaliza con `redirect()` cuando la sesión ya no sirve y tragarse esa señal dejaría a la persona mirando un mensaje de error en vez de navegar a `/login`. `app/p/casa-brava/owner-panel/page.tsx` y `app/p/casa-brava/owner-panel/reservations/page.tsx` todavía usan un `.catch(() => null)` a secas; el camino es casi inalcanzable porque el middleware ya redirigió antes, pero si se tocan esas páginas conviene igualarlas a este patrón.
+- **[app/p/casa-brava/owner-panel/catalogos/actions.ts](app/p/casa-brava/owner-panel/catalogos/actions.ts)** — doce Server Actions (crear/editar/eliminar × cuatro catálogos). Las doce difieren solo en endpoint, cuerpo y mensaje de respaldo; el resto —`revalidatePath("/p/casa-brava/owner-panel/catalogos")`, devolver `{ success: true } | { error: string }` sin lanzar nunca— vive una sola vez en el helper interno `escribirCatalogo`.
 - **[components/CatalogTable.tsx](components/CatalogTable.tsx)** — el CRUD genérico: tabla, modal de crear/editar y confirmación de borrado en **dos pasos**, igual que en reservaciones. Se describe **con datos** (`fields: CatalogField[]`) en vez de existir cuatro veces copiado. Trabaja siempre con strings (es lo que devuelve un `<input>`); cada fila trae `values` (lo que edita el formulario) y `display` (lo ya formateado para la celda, que puede ser un `ReactNode` para pintar una insignia). El modal de edición lleva `key={row.id}`: el estado del formulario se siembra en el inicializador de `useState`, así que sin esa `key` una segunda edición reutilizaría los valores de la primera.
 - **[components/CatalogsView.tsx](components/CatalogsView.tsx)** — el **adaptador**: define los campos de cada catálogo, sus textos y la traducción del formulario (todo strings) al cuerpo tipado de cada Server Action. La conversión de importes con `toNumber()` se hace aquí, en el último punto antes de la petición.
 
 **Un borrado puede fallar por diseño.** Las FK de los cuatro catálogos son `on_delete=PROTECT` desde las reservaciones y sus bookings, para que borrar una fila del catálogo no reescriba lo ya cobrado. Ese intento responde **409** con su mensaje en español y el modal se queda abierto para que el admin dé marcha atrás. La traducción de `ProtectedError` a 409 se agregó en el backend (`casabrava_core/exceptions.py`, registrado como `EXCEPTION_HANDLER`): sin ella salía como 500 con traceback HTML, y `extractErrorMessage` habría metido ese HTML entero dentro de un toast. **El límite real es la API**, no el copy del modal.
 
 **Lo que este panel todavía no cubre**: los paquetes de vino (`/api/servicios/paquetes-vino/`, mismo patrón de permisos y de forma) y la disponibilidad de spa y de cocina. Siguen editándose desde el admin de Django.
+
+---
+
+## Panel de Control PHH (`/admin`)
+
+Panel **universal** del administrador de Parras Home Hub — distinto del panel
+de gestión de Casa Brava de arriba: aquel es de una sola propiedad, este es
+del marketplace completo. Protegido por el mismo guard `admin` de siempre
+(ver "Guards de ruta"), pero ya no comparte ruta ni componentes con el panel
+de Casa Brava.
+
+- **[app/admin/page.tsx](app/admin/page.tsx)** — Server Component `async`: un solo `serverFetchAll<Usuario>("/api/usuarios/")`, sin `getSessionUser()` en paralelo porque este panel no tiene acciones que necesiten `currentUserId` (es de solo lectura, sin CRUD).
+- **[components/GlobalUsersPanel.tsx](components/GlobalUsersPanel.tsx)** — Client Component con una tabla (Nombre, Correo, Rol, Estado, Fecha de registro) y filtros de rol/estado como pastillas (`FilterPills`), filtrando en el propio cliente sobre la lista ya cargada — no hay round-trip adicional al backend por cada filtro. Exporta el tipo `GlobalUser` (alias de `Usuario`) con un comentario explicando por qué es un alias y no un tipo propio (ver el archivo).
+- **Es de solo lectura a propósito.** El backend sigue siendo de una sola propiedad (ver "Arquitectura multi-tenant"): no existe un endpoint que consolide usuarios de varias propiedades, así que `/api/usuarios/` es, hoy, la misma colección completa que ya gestiona el owner-panel de Casa Brava con su propio CRUD. Duplicar aquí crear/editar/eliminar sobre la misma colección sería una segunda fuente de verdad para la misma escritura — el día que el backend modele multi-tenant de verdad, este panel gana su propio endpoint consolidado (y, ahí sí, su propio CRUD si corresponde) en vez de crecer el actual.
 
 ---
 

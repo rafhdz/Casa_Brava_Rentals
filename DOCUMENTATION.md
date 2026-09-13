@@ -87,7 +87,7 @@ Abrir <http://localhost:3000>.
 
 | Correo | Rol | Qué ve |
 | --- | --- | --- |
-| `admin@test.com` | Administrador | Panel completo en `/admin` |
+| `admin@test.com` | Administrador | Panel de Control PHH (`/admin`) y panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) |
 | `carlos.ruiz@example.com` | Propietario | Experiencia de huésped |
 | `maria.gomez@example.com` | Huésped | Experiencia de huésped |
 
@@ -124,10 +124,7 @@ Casa_Brava_Rentals/
 │   │   │   ├── comida/page.tsx   Reservar comida (solo real en casa-brava)
 │   │   │   └── vinos/page.tsx    Pedido de vinos (solo real en casa-brava)
 │   │   └── checkout/page.tsx     Liquidación unificada (mock/revisión, ver CLAUDE.md)
-│   ├── supplier/                 Portal de anfitrión (esqueleto, sin escritura real)
-│   │   ├── layout.tsx            Monta SupplierNav
-│   │   └── page.tsx              "Mis propiedades", Stripe Connect y ocupación (mock)
-│   ├── admin/
+│   ├── p/casa-brava/owner-panel/ Panel de gestión de Casa Brava (carpeta estática, coexiste con p/[slug])
 │   │   ├── page.tsx              Panel: usuarios invitados
 │   │   ├── actions.ts            Crear/editar/eliminar usuarios
 │   │   ├── reservations/
@@ -136,6 +133,11 @@ Casa_Brava_Rentals/
 │   │   └── catalogos/
 │   │       ├── page.tsx          Panel: tarifas, masajistas, menús y vinos
 │   │       └── actions.ts        CRUD de los cuatro catálogos
+│   ├── supplier/                 Portal de anfitrión (esqueleto, sin escritura real)
+│   │   ├── layout.tsx            Monta SupplierNav
+│   │   └── page.tsx              "Mis propiedades", Stripe Connect y ocupación (mock)
+│   ├── admin/
+│   │   └── page.tsx              Panel de Control PHH: usuarios de todo el sistema, solo lectura + filtros
 │   └── actions/
 │       ├── auth.ts               Iniciar sesión, registrarse, cerrar sesión
 │       └── checkout.ts           Pagar la estadía y los servicios (Casa Brava)
@@ -185,6 +187,14 @@ Cada página bajo esta ruta dinámica bifurca según el slug:
 - Cualquier otro slug (propiedades ficticias de `lib/mock/marketplace-data.ts`)
   → contenido mock, sin llamadas al backend.
 
+`app/p/casa-brava/owner-panel/` es una carpeta **estática** (no `[slug]`)
+que vive al mismo nivel que `[slug]/` dentro de `app/p/`. Next.js permite que
+un segmento estático y uno dinámico coexistan en el mismo nivel: el estático
+gana en el match exacto, así que `/p/casa-brava/owner-panel/**` siempre
+resuelve ahí y nunca a `p/[slug]/owner-panel` (que no existe). El resto de
+`/p/casa-brava/**` (fachada, `reservar`, `servicios/*`, `checkout`) sigue
+resolviendo en `p/[slug]/` con `slug === "casa-brava"`, sin cambios.
+
 Ver "Arquitectura multi-tenant (Fase 4 — Parras Home Hub)" en
 [CLAUDE.md](CLAUDE.md) para el porqué completo de esta bifurcación y las
 reglas que la mantienen segura (frontera entre `lib/mock/` y `lib/api/`,
@@ -197,6 +207,7 @@ despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
 | Quiero cambiar… | Archivo |
 | --- | --- |
 | Cuál Navbar/Footer se muestra en qué ruta (marketplace vs. Casa Brava) | [components/Navbar.tsx](components/Navbar.tsx), [components/Footer.tsx](components/Footer.tsx) — son despachadores por `usePathname()`, ver "Arquitectura multi-tenant" en [CLAUDE.md](CLAUDE.md) |
+| Qué logo (`PHH_logo.svg` / `CBR_logo.svg`) se muestra en qué ruta | [components/TenantNavbar.tsx](components/TenantNavbar.tsx) (decide por pathname), [components/MarketplaceNavbar.tsx](components/MarketplaceNavbar.tsx) (siempre PHH) — regla completa en [CLAUDE.md](CLAUDE.md), "Gestión de logos e identidad visual" |
 | Barra superior de Casa Brava (logo, carrito, perfil, logout) | [components/TenantNavbar.tsx](components/TenantNavbar.tsx) |
 | Pie de página de Casa Brava | [components/TenantFooter.tsx](components/TenantFooter.tsx) |
 | Barra superior del marketplace (PHH) | [components/MarketplaceNavbar.tsx](components/MarketplaceNavbar.tsx) |
@@ -219,11 +230,12 @@ despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
 | Formularios de spa / comida / vinos | `components/SpaBookingForm.tsx`, `FoodBookingForm.tsx`, `WineBookingForm.tsx` |
 | Aviso de "sin acceso" en `/p/[slug]/servicios/*` (admin, sin estadía activa, o propiedad sin ese servicio) | [components/ServiceAccessNotice.tsx](components/ServiceAccessNotice.tsx) |
 | Carrito y sus renglones | [components/CartView.tsx](components/CartView.tsx), [components/CartItemRow.tsx](components/CartItemRow.tsx) |
-| Tabla de usuarios del panel | [components/UsersTable.tsx](components/UsersTable.tsx) |
-| Tabla de reservaciones del panel | [components/ReservationsTable.tsx](components/ReservationsTable.tsx) |
-| Pestañas del panel (Usuarios / Reservaciones / Catálogos) | [components/AdminNav.tsx](components/AdminNav.tsx) |
-| Qué campos y textos tiene cada catálogo del panel | [components/CatalogsView.tsx](components/CatalogsView.tsx) |
+| Tabla de usuarios del owner-panel de Casa Brava | [components/UsersTable.tsx](components/UsersTable.tsx) |
+| Tabla de reservaciones del owner-panel de Casa Brava | [components/ReservationsTable.tsx](components/ReservationsTable.tsx) |
+| Pestañas del owner-panel de Casa Brava (Usuarios / Reservaciones / Catálogos) | [components/OwnerNav.tsx](components/OwnerNav.tsx) |
+| Qué campos y textos tiene cada catálogo del owner-panel | [components/CatalogsView.tsx](components/CatalogsView.tsx) |
 | Tabla y modales genéricos de un catálogo | [components/CatalogTable.tsx](components/CatalogTable.tsx) |
+| Tabla y filtros del Panel de Control PHH (`/admin`, usuarios de todo el sistema) | [components/GlobalUsersPanel.tsx](components/GlobalUsersPanel.tsx) |
 | Botón "Volver" | [components/BackButton.tsx](components/BackButton.tsx) |
 
 **Estilo general:** todo es Tailwind CSS v4 escrito directamente en las clases. No hay archivo `tailwind.config.js`; los tokens se definen con `@theme` en [app/globals.css](app/globals.css). La paleta es escala de grises (`neutral-*`) con negro para los botones principales, y el diseño se escribe **mobile-first**.
@@ -236,10 +248,10 @@ Ningún texto, precio ni imagen de negocio está escrito en el código del front
 
 | Contenido | Dónde se edita | Dónde se ve |
 | --- | --- | --- |
-| **Tipos de tarifa y su recargo** | **`/admin/catalogos` → Tipos de tarifa** | `/p/casa-brava/reservar` y panel |
-| **Masajistas** | **`/admin/catalogos` → Masajistas** | `/p/casa-brava/servicios/spa` |
-| **Menús y precio por persona** | **`/admin/catalogos` → Menús** | `/p/casa-brava/servicios/comida` |
-| **Vinos (precio y existencias)** | **`/admin/catalogos` → Vinos** | `/p/casa-brava/servicios/vinos` |
+| **Tipos de tarifa y su recargo** | **`/p/casa-brava/owner-panel/catalogos` → Tipos de tarifa** | `/p/casa-brava/reservar` y panel |
+| **Masajistas** | **`/p/casa-brava/owner-panel/catalogos` → Masajistas** | `/p/casa-brava/servicios/spa` |
+| **Menús y precio por persona** | **`/p/casa-brava/owner-panel/catalogos` → Menús** | `/p/casa-brava/servicios/comida` |
+| **Vinos (precio y existencias)** | **`/p/casa-brava/owner-panel/catalogos` → Vinos** | `/p/casa-brava/servicios/vinos` |
 | Fotos del carrusel | Django: Fotos de la propiedad | `/p/casa-brava` |
 | Amenidades y sus categorías | Django: Amenidades / Categorías de amenidades | `/p/casa-brava` |
 | Tarjetas de servicios adicionales | Django: Información de servicios adicionales | `/p/casa-brava` |
@@ -274,22 +286,23 @@ El token caduca (60 minutos por defecto). Cuando eso pasa, [middleware.ts](middl
 | --- | --- |
 | `/` (landing de Parras Home Hub) | **Pública** — sin sesión |
 | `/p/<slug>/**` (fachada, reservar, servicios, checkout de una propiedad) | Sesión activa solo si esa propiedad es de acceso por invitación (hoy, solo `casa-brava`) |
+| `/p/casa-brava/owner-panel/**` (panel de gestión de Casa Brava) | Sesión activa **y** rol `holder` o `admin` |
 | `/perfil`, `/carrito` | Sesión activa |
-| `/admin` y `/admin/*` | Sesión activa **y** rol de administrador |
+| `/admin` (Panel de Control de todo PHH) | Sesión activa **y** rol de administrador |
 | `/login`, `/register` | Abiertas — son la puerta de entrada |
 | `/sobre-nosotros`, `/conoce-parras`, `/supplier` | Públicas |
 
-Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin rol de administrador, `/admin` redirige a `/`.
+Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin rol de administrador, `/admin` redirige a `/`. Con sesión pero sin rol `holder`/`admin`, `/p/casa-brava/owner-panel/**` redirige a `/p/casa-brava` (la fachada de la propiedad, no a `/`, porque ya sabemos que esa sesión tiene invitación válida a Casa Brava).
 
 ### Roles
 
 | Rol | Qué puede hacer |
 | --- | --- |
-| **Administrador** (`admin`) | Todo: gestionar usuarios y reservaciones |
-| **Propietario** (`holder`) | Ve la experiencia de huésped; en la API puede consultar todos los registros, pero no modificarlos |
+| **Administrador** (`admin`) | Todo: el Panel de Control de PHH (`/admin`) **y** el panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) |
+| **Propietario** (`holder`) | Ve la experiencia de huésped y además entra al panel de gestión de Casa Brava; en la API puede consultar todos los registros, pero no modificarlos |
 | **Huésped** (`guest`) | Reserva y consulta lo suyo |
 
-Quien se registra por su cuenta en `/register` siempre queda como **huésped**. Crear administradores o propietarios solo se puede desde el panel.
+Quien se registra por su cuenta en `/register` siempre queda como **huésped**. Crear administradores o propietarios solo se puede desde el panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) — el Panel de Control de PHH (`/admin`) solo lista y filtra, no crea ni edita.
 
 > Los permisos los decide **el backend** en cada petición. Lo que el frontend hace —ocultar botones, deshabilitar campos— es comodidad visual, no seguridad.
 
@@ -321,7 +334,13 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 
 > Igual que en el resto del sistema, esto es ayuda de UX: el backend ya rechaza un servicio fuera de la estadía o sin ella (`RESERVATION_REQUIRED_ERROR`), y esta capa solo evita que la persona llegue a ese error después de llenar un formulario entero.
 
-### Panel de usuarios (`/admin`)
+### Panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`)
+
+Tres pestañas — Usuarios, Reservaciones, Catálogos —, accesibles solo con rol
+`holder` o `admin`. Es el panel que hasta la Fase 4 vivía en `/admin`; se
+movió para dejar `/admin` libre como panel universal de PHH (ver más abajo).
+
+#### Usuarios (`/p/casa-brava/owner-panel`)
 
 - Lista las cuentas con su rol y estado.
 - **Crear usuario**: la cuenta queda activa de inmediato con la contraseña temporal `changeme123`, que el administrador comparte con la persona.
@@ -329,7 +348,7 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 - **Eliminar**: pide confirmación.
 - Un administrador **no puede** cambiar su propio rol ni borrarse a sí mismo: sería la forma más rápida de dejar el panel sin acceso.
 
-### Panel de reservaciones (`/admin/reservations`)
+#### Reservaciones (`/p/casa-brava/owner-panel/reservations`)
 
 - Tabla con huésped, fechas, tarifa, servicios contratados (íconos), monto y los dos estados.
 - **Dos estados independientes**: el de la reserva (`Pendiente`, `Confirmada`, `Cancelada`, `Finalizada`) y el del cobro (`Pendiente`, `Parcial`, `Completado`, `Reembolsado`). Se cambian por separado, para poder registrar un anticipo sobre una reserva todavía pendiente.
@@ -338,7 +357,7 @@ Quien se registra por su cuenta en `/register` siempre queda como **huésped**. 
 - **Eliminar** pide doble confirmación. No borra de verdad: marca la reserva como eliminada y libera los horarios de spa, conservando el historial de lo contratado.
 - Confirmar una reserva vuelve a verificar que no choque con otra; si choca, se avisa y no se guarda.
 
-### Panel de catálogos (`/admin/catalogos`)
+#### Catálogos (`/p/casa-brava/owner-panel/catalogos`)
 
 Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masajistas**, **menús** y **vinos**. Antes solo se podía editar desde el admin de Django.
 
@@ -348,6 +367,21 @@ Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masa
 - Los servicios ya contratados **conservan el precio con el que se cobraron**. Cambiar un precio aquí afecta a lo que se contrate de ahora en adelante, nunca a lo ya vendido.
 - Lo que todavía **no** está en este panel: los paquetes de vinos y la disponibilidad (horarios de spa, días de cocina). Siguen en el admin de Django.
 
+### Panel de Control PHH (`/admin`)
+
+Panel universal del administrador de Parras Home Hub, accesible solo con rol
+`admin`. Una sola pantalla: usuarios de todo el sistema, con columnas
+Nombre/Correo/Rol/Estado/Fecha de registro y filtros por rol y por estado.
+
+- **Es de solo lectura** — no crea, edita ni elimina. El backend sigue siendo
+  de una sola propiedad, así que hoy consume el mismo `/api/usuarios/` que ya
+  administra por completo el panel de Casa Brava; hacer CRUD dos veces sobre
+  la misma colección sería una segunda fuente de verdad para la misma
+  escritura. Cuando el backend modele varias propiedades, este panel gana su
+  propio endpoint consolidado.
+- Los filtros son instantáneos: se aplican en el navegador sobre la lista ya
+  cargada, sin volver a pedirle nada al backend por cada clic.
+
 ---
 
 ## 8. Cosas que conviene saber al tocar el código
@@ -356,7 +390,7 @@ Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masa
 
 **Las listas del backend vienen de 50 en 50.** Para traer una colección completa hay que usar `serverFetchAll` (no `serverFetch`), que va siguiendo las páginas. Si se lee solo la primera, faltan datos **sin ningún error visible** — por ejemplo, desaparecerían los días de spa más lejanos.
 
-**Los componentes del navegador no pueden llamar al backend.** El token está en una cookie que el navegador no puede leer. Todo acceso a datos ocurre en un Server Component (la página) o en una Server Action (`app/actions/`, `app/admin/actions.ts`).
+**Los componentes del navegador no pueden llamar al backend.** El token está en una cookie que el navegador no puede leer. Todo acceso a datos ocurre en un Server Component (la página) o en una Server Action (`app/actions/`, `app/p/casa-brava/owner-panel/actions.ts`).
 
 **Las reglas de negocio son del backend.** Fechas, choques de reservas, montos e inventario de spa se validan allá, dentro de una transacción. Lo que el frontend hace —deshabilitar fechas en el calendario, ocultar horarios ocupados— sirve para no hacer perder el tiempo, pero no es la protección real.
 
@@ -370,4 +404,4 @@ Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masa
 | --- | --- |
 | **Cobro real con Stripe** | El punto de enganche ya existe en el backend (`pagos.services.registrar_pago`). Falta conectar el proveedor y su webhook. Hoy el pago es simulado. |
 | **Vista de pagos en el panel** | El backend ya guarda cada movimiento de cobro por separado (anticipos, saldos, reembolsos), pero el panel todavía solo muestra el estado general de la reserva. |
-| **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. Los catálogos (tarifas, masajistas, menús y vinos) ya se administran desde `/admin/catalogos`; los paquetes de vinos siguen siendo la excepción. |
+| **Administrar disponibilidad desde el panel** | Los horarios de spa y los días de cocina se cargan con `seed_demo` o desde el admin de Django; no hay pantalla propia. Los catálogos (tarifas, masajistas, menús y vinos) ya se administran desde `/p/casa-brava/owner-panel/catalogos`; los paquetes de vinos siguen siendo la excepción. |

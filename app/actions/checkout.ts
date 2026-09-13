@@ -42,7 +42,7 @@ export async function checkoutStay(input: CheckoutStayInput): Promise<ActionResu
       },
     });
 
-    revalidatePath("/admin/reservations");
+    revalidatePath("/p/casa-brava/owner-panel/reservations");
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo crear la reservación.") };
@@ -160,7 +160,7 @@ export async function checkoutCartServices(items: CartItem[]): Promise<ActionRes
       }
     }
 
-    revalidatePath("/admin/reservations");
+    revalidatePath("/p/casa-brava/owner-panel/reservations");
     return { success: true };
   } catch (error) {
     await compensar(creados);

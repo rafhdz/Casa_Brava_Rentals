@@ -68,7 +68,7 @@ export const ESTADOS_ACTIVOS: ReservationStatus[] = ["pendiente", "confirmada"];
  *
  * El enum del backend ya viene en español, así que cada valor sirve también
  * como label — no hay tabla de traducción. Alimenta los selects del catálogo
- * de menús en `/admin/catalogos`.
+ * de menús en `/p/casa-brava/owner-panel/catalogos`.
  */
 export const MEAL_TYPES: MealType[] = ["Desayuno", "Almuerzo", "Cena"];
 

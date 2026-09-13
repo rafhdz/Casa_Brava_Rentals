@@ -1,4 +1,4 @@
-import AdminNav from "@/components/AdminNav";
+import OwnerNav from "@/components/OwnerNav";
 import CatalogsView from "@/components/CatalogsView";
 import { ApiError, serverFetchAll } from "@/lib/api/server";
 import { toNumber } from "@/lib/format";
@@ -25,7 +25,7 @@ function sinDatos(error: unknown): null {
   throw error;
 }
 
-export default async function AdminCatalogsPage() {
+export default async function OwnerPanelCatalogsPage() {
   const [fareTypes, masseuses, menus, wines] = await Promise.all([
     serverFetchAll<FareType>("/api/propiedades/tarifas/").catch(sinDatos),
     serverFetchAll<SpaMasseuse>("/api/proveedores/masajistas/").catch(sinDatos),
@@ -38,7 +38,7 @@ export default async function AdminCatalogsPage() {
 
   return (
     <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
-      <AdminNav />
+      <OwnerNav />
 
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900">Catálogos</h1>

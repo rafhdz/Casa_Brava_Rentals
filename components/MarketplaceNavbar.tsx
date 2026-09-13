@@ -25,13 +25,9 @@ export default function MarketplaceNavbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/90 backdrop-blur">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2" onClick={() => setIsMenuOpen(false)}>
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900 text-sm font-bold text-white">
-            PHH
-          </span>
-          <span className="text-sm font-semibold text-neutral-900 sm:text-base">
-            Parras Home Hub
-          </span>
+        <Link href="/" className="flex items-center" onClick={() => setIsMenuOpen(false)}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
+          <img src="/icons/system/PHH_logo.svg" alt="Parras Home Hub" className="h-9 w-auto" />
         </Link>
 
         <div className="hidden items-center gap-6 sm:flex">

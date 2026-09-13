@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 import type { ProfileStatus, RoleType, Usuario } from "@/lib/api/types";
-import { createUser, deleteUser, updateUser } from "@/app/admin/actions";
+import { createUser, deleteUser, updateUser } from "@/app/p/casa-brava/owner-panel/actions";
 
 const ROLE_LABELS: Record<RoleType, string> = {
   admin: "Admin",

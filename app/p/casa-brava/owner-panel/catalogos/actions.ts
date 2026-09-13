@@ -12,7 +12,7 @@ import type {
 } from "@/lib/api/types";
 
 /**
- * CRUD de los cuatro catálogos que administra `/admin/catalogos`.
+ * CRUD de los cuatro catálogos que administra `/p/casa-brava/owner-panel/catalogos`.
  *
  * Cada catálogo vive en su propia app del backend —tarifas en `propiedades`,
  * masajistas en `proveedores`, menús y vinos en `servicios`—, pero los cuatro
@@ -30,7 +30,7 @@ import type {
 
 export type CatalogActionResult = { success: true } | { error: string };
 
-const CATALOGS_PATH = "/admin/catalogos";
+const CATALOGS_PATH = "/p/casa-brava/owner-panel/catalogos";
 
 // Endpoints de cada catálogo. Agrupados aquí para que la ruta de un catálogo
 // se escriba una sola vez y no se disperse entre sus tres acciones.

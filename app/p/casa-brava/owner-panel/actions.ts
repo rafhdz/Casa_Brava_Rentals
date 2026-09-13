@@ -48,7 +48,7 @@ export async function createUser(
       },
     });
 
-    revalidatePath("/admin");
+    revalidatePath("/p/casa-brava/owner-panel");
     return { success: true };
   } catch (error) {
     // El backend ya devuelve "Ya existe un/a usuario con este/a email." para el
@@ -73,7 +73,7 @@ export async function updateUser(
   try {
     await serverFetch<Usuario>(`/api/usuarios/${userId}/`, { method: "PATCH", body: data });
 
-    revalidatePath("/admin");
+    revalidatePath("/p/casa-brava/owner-panel");
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo actualizar el usuario.") };
@@ -89,7 +89,7 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
   try {
     await serverFetch(`/api/usuarios/${userId}/`, { method: "DELETE" });
 
-    revalidatePath("/admin");
+    revalidatePath("/p/casa-brava/owner-panel");
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo eliminar el usuario.") };

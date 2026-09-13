@@ -7,19 +7,33 @@ import { useAuth } from "@/lib/AuthContext";
 import { useCart } from "@/lib/CartContext";
 import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 
-// Nav de la experiencia de huésped autenticado (Casa Brava / Tenant 0):
-// /p/**, /login, /register, /carrito, /perfil, /admin. Es el contenido
-// exacto de lo que antes era components/Navbar.tsx — components/Navbar.tsx
-// ahora solo decide CUÁL de los dos navs (este o MarketplaceNavbar) montar
-// según la ruta. No fusionar de nuevo en un solo componente: son dos
-// audiencias distintas (ver CLAUDE.md, "Arquitectura multi-tenant").
+// Nav de la experiencia de huésped y de gestión de Casa Brava (Tenant 0):
+// /p/** (incluye /p/casa-brava/owner-panel), /carrito, /perfil. Es el
+// contenido exacto de lo que antes era components/Navbar.tsx —
+// components/Navbar.tsx ahora solo decide CUÁL de los dos navs (este o
+// MarketplaceNavbar) montar según la ruta; "/login", "/register" y "/admin"
+// pasaron a MarketplaceNavbar (ver esa nota en Navbar.tsx). No fusionar de
+// nuevo en un solo componente: son dos audiencias distintas (ver CLAUDE.md,
+// "Arquitectura multi-tenant").
+const OWNER_PANEL_PREFIX = `/p/${TENANT_ZERO_SLUG}/owner-panel`;
+
 export default function TenantNavbar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { totalItems } = useCart();
 
-  const isAdminRoute = pathname.startsWith("/admin");
+  const isOwnerPanelRoute = pathname.startsWith(OWNER_PANEL_PREFIX);
+
+  // Este componente también monta en /p/<slug> de las propiedades OPEN
+  // (mock, sin backend) — ahí NO corresponde el logo de Casa Brava. Regla de
+  // visualización de CLAUDE.md: CBR_logo.svg es exclusivo de
+  // /p/casa-brava/** (incluido su owner-panel); todo lo demás usa
+  // PHH_logo.svg, igual que el resto del marketplace.
+  const isCasaBravaScope = pathname.startsWith(`/p/${TENANT_ZERO_SLUG}`);
+  const logoHref = isCasaBravaScope ? `/p/${TENANT_ZERO_SLUG}` : "/";
+  const logoSrc = isCasaBravaScope ? "/icons/system/CBR_logo.svg" : "/icons/system/PHH_logo.svg";
+  const logoAlt = isCasaBravaScope ? "Casa Brava" : "Parras Home Hub";
 
   async function handleLogout() {
     await logout();
@@ -29,18 +43,18 @@ export default function TenantNavbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/90 backdrop-blur">
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link href={`/p/${TENANT_ZERO_SLUG}`} className="flex items-center">
+        <Link href={logoHref} className="flex items-center">
           {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático de public/, no requiere el optimizador de next/image */}
           <img
-            src="/icons/system/logo.svg"
-            alt="Casa Brava"
+            src={logoSrc}
+            alt={logoAlt}
             className="h-10 w-auto"
           />
         </Link>
 
         {user && (
           <div className="flex items-center gap-2 sm:gap-3">
-            {!isAdminRoute && (
+            {!isOwnerPanelRoute && (
               <Link
                 href="/carrito"
                 title="Carrito"

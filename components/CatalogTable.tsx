@@ -3,13 +3,13 @@
 import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import type { CatalogActionResult } from "@/app/admin/catalogos/actions";
+import type { CatalogActionResult } from "@/app/p/casa-brava/owner-panel/catalogos/actions";
 
 /**
  * Tabla de un catálogo administrable, con sus modales de crear / editar /
  * eliminar.
  *
- * Los cuatro catálogos de `/admin/catalogos` (tarifas, masajistas, menús y
+ * Los cuatro catálogos de `/p/casa-brava/owner-panel/catalogos` (tarifas, masajistas, menús y
  * vinos) son el mismo CRUD sobre un puñado de campos planos: cambia la lista
  * de campos, el endpoint y los textos, no la mecánica. Por eso este componente
  * se describe con datos (`fields`) en vez de existir cuatro veces copiado —

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_TOKEN_COOKIE, API_BASE_URL, AUTH_ENDPOINTS, REFRESH_TOKEN_COOKIE } from "@/lib/api/config";
 import { decodeJwt, isTokenExpired, secondsUntilExpiry } from "@/lib/api/jwt";
-import { isInviteOnlyBySlug } from "@/lib/mock/marketplace-data";
+import { isInviteOnlyBySlug, TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type { RoleType, Usuario } from "@/lib/api/types";
 
 // Nota: Next.js 16 renombró esta convención de archivo a `proxy.ts` (con la
@@ -18,8 +18,17 @@ import type { RoleType, Usuario } from "@/lib/api/types";
 // más abajo), no de un prefijo fijo.
 const PROTECTED_PREFIXES = ["/perfil", "/carrito"];
 
-// Ruta que además exige rol de administrador.
+// Panel universal del administrador de Parras Home Hub — el marketplace
+// territorial, no una propiedad en particular.
 const ADMIN_PREFIX = "/admin";
+
+// Panel de gestión de Casa Brava (usuarios/reservaciones/catálogos de ESA
+// propiedad). Vive bajo /p/<TENANT_ZERO_SLUG>/owner-panel — no confundir con
+// ADMIN_PREFIX: aquel es del administrador de todo PHH, este es del
+// propietario (o admin) de una sola casa. Ver CLAUDE.md, "Migración del
+// panel de administración a owner-panel".
+const OWNER_PANEL_PREFIX = `/p/${TENANT_ZERO_SLUG}/owner-panel`;
+const OWNER_PANEL_ROLES: RoleType[] = ["holder", "admin"];
 
 // Rutas de una propiedad del marketplace: /p/<slug>, /p/<slug>/reservar,
 // /p/<slug>/servicios/*, /p/<slug>/checkout — todo el subárbol.
@@ -90,13 +99,17 @@ async function refreshTokens(refresh: string): Promise<Session> {
  * Confirma el rol contra la API en vez de creerle al claim del token.
  *
  * El middleware no verifica firmas, así que un token fabricado a mano podría
- * declarar `role: "admin"`. Ese token no sirve para nada contra Django (la
+ * declarar cualquier `role`. Ese token no sirve para nada contra Django (la
  * firma no cuadra y toda petición devuelve 401), pero sin esta comprobación sí
- * alcanzaría para *entrar* a /admin y ver la cáscara de la página. Una llamada
- * a `/api/usuarios/me/` cierra ese hueco: solo corre cuando el claim ya dice
- * "admin", así que no penaliza al resto de las navegaciones.
+ * alcanzaría para *entrar* a una ruta protegida por rol y ver la cáscara de la
+ * página. Una llamada a `/api/usuarios/me/` cierra ese hueco: solo corre
+ * cuando el claim ya declara uno de los roles permitidos, así que no penaliza
+ * al resto de las navegaciones.
+ *
+ * Genérica en `allowedRoles` porque hay dos guards por rol distintos:
+ * ADMIN_PREFIX (solo "admin") y OWNER_PANEL_PREFIX ("holder" o "admin").
  */
-async function confirmarRolAdmin(access: string): Promise<boolean> {
+async function confirmarRol(access: string, allowedRoles: RoleType[]): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/usuarios/me/`, {
       headers: { Authorization: `Bearer ${access}`, Accept: "application/json" },
@@ -106,7 +119,7 @@ async function confirmarRolAdmin(access: string): Promise<boolean> {
     if (!response.ok) return false;
 
     const perfil = (await response.json()) as Pick<Usuario, "role">;
-    return perfil.role === "admin";
+    return allowedRoles.includes(perfil.role);
   } catch {
     return false;
   }
@@ -123,6 +136,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const propertySlug = pathname.match(PROPERTY_ROUTE_PATTERN)?.[1];
+  const isOwnerPanelRoute = matchesPrefix(pathname, OWNER_PANEL_PREFIX);
   const isProtectedRoute =
     PROTECTED_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix)) ||
     (propertySlug !== undefined && isInviteOnlyBySlug(propertySlug));
@@ -147,7 +161,12 @@ export async function middleware(request: NextRequest) {
 
   const haySesion = Boolean(access) && !isTokenExpired(access);
 
-  if (!haySesion && (isProtectedRoute || isAdminRoute)) {
+  // Nota: OWNER_PANEL_PREFIX ya queda cubierto por `isProtectedRoute` (vive
+  // bajo /p/<TENANT_ZERO_SLUG>, que es INVITE_ONLY), pero se incluye explícito
+  // aquí para que el requisito de sesión de esta ruta no dependa en silencio
+  // de que Casa Brava siga siendo invitación-only — si eso cambiara, el
+  // guard por rol de abajo seguiría exigiendo sesión de todos modos.
+  if (!haySesion && (isProtectedRoute || isAdminRoute || isOwnerPanelRoute)) {
     const redirect = NextResponse.redirect(new URL("/login", request.url));
     // La sesión ya no vale: limpiar evita reintentar el mismo refresh muerto
     // en cada navegación siguiente.
@@ -166,8 +185,20 @@ export async function middleware(request: NextRequest) {
     // aquí: esta rama solo corre cuando `haySesion` ya es `true`, así que
     // este redirect manda a alguien CON sesión a la landing, no a un
     // anónimo — no hay bucle con /login posible.
-    if (rol !== "admin" || !(await confirmarRolAdmin(access as string))) {
+    if (rol !== "admin" || !(await confirmarRol(access as string, ["admin"]))) {
       return NextResponse.redirect(new URL("/", request.url));
+    }
+  }
+
+  // Guard por rol del panel de gestión de Casa Brava: sesión ya confirmada
+  // arriba, aquí solo se exige "holder" o "admin" — mismo patrón fail-closed
+  // que ADMIN_PREFIX. Un huésped con sesión que intenta entrar vuelve a la
+  // fachada de la propiedad, no a "/", porque ya sabemos que tiene invitación
+  // válida a Casa Brava (si no, ya habría salido por el guard de arriba).
+  if (haySesion && isOwnerPanelRoute) {
+    const rol = decodeJwt(access)?.role as RoleType | undefined;
+    if (!rol || !OWNER_PANEL_ROLES.includes(rol) || !(await confirmarRol(access as string, OWNER_PANEL_ROLES))) {
+      return NextResponse.redirect(new URL(`/p/${TENANT_ZERO_SLUG}`, request.url));
     }
   }
 

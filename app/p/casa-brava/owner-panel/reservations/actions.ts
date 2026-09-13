@@ -71,7 +71,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
       },
     });
 
-    revalidatePath("/admin/reservations");
+    revalidatePath("/p/casa-brava/owner-panel/reservations");
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo crear la reservación.") };
@@ -101,7 +101,7 @@ export async function updateReservation(
       body: { ...resto, ...(fare_type_id ? { fare_type: fare_type_id } : {}) },
     });
 
-    revalidatePath("/admin/reservations");
+    revalidatePath("/p/casa-brava/owner-panel/reservations");
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo actualizar la reservación.") };
@@ -120,7 +120,7 @@ export async function deleteReservation(reservationId: string): Promise<ActionRe
   try {
     await serverFetch(`/api/reservaciones/reservaciones/${reservationId}/`, { method: "DELETE" });
 
-    revalidatePath("/admin/reservations");
+    revalidatePath("/p/casa-brava/owner-panel/reservations");
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo eliminar la reservación.") };

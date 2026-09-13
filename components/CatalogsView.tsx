@@ -22,7 +22,7 @@ import {
   updateMasseuse,
   updateMenu,
   updateWine,
-} from "@/app/admin/catalogos/actions";
+} from "@/app/p/casa-brava/owner-panel/catalogos/actions";
 
 /**
  * Panel de catálogos: un selector de catálogo y, debajo, la tabla del que esté
