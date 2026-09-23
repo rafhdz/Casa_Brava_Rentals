@@ -3,7 +3,11 @@ import { toNumber } from "@/lib/format";
 import { getReservations } from "@/app/p/casa-brava/owner-panel/reservations/actions";
 import ReservationsTable from "@/components/ReservationsTable";
 import OwnerNav from "@/components/OwnerNav";
+import { getPropertyName, TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type { FareType, PropertySettings, Usuario } from "@/lib/api/types";
+
+/** Ver la nota de `PROPERTY_SLUG` en la raíz del panel (../page.tsx). */
+const PROPERTY_SLUG = TENANT_ZERO_SLUG;
 
 export default async function OwnerPanelReservationsPage() {
   const [reservationsResult, guests, fareTypes, settings] = await Promise.all([
@@ -19,11 +23,11 @@ export default async function OwnerPanelReservationsPage() {
 
   return (
     <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
-      <OwnerNav />
+      <OwnerNav propertySlug={PROPERTY_SLUG} />
 
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900">Reservaciones</h1>
-        <p className="mt-1 text-sm text-neutral-500">Casa Brava</p>
+        <p className="mt-1 text-sm text-neutral-500">{getPropertyName(PROPERTY_SLUG)}</p>
       </div>
 
       {hasError ? (
@@ -34,7 +38,12 @@ export default async function OwnerPanelReservationsPage() {
       ) : (
         <ReservationsTable
           reservations={"data" in reservationsResult ? reservationsResult.data : []}
-          guests={guests.map(({ id, nombre_completo, email }) => ({ id, nombre_completo, email }))}
+          guests={guests.map(({ id, nombre_completo, email, role }) => ({
+            id,
+            nombre_completo,
+            email,
+            role,
+          }))}
           // Los decimales llegan como string desde DRF; se convierten aquí para
           // que el modal de creación calcule el total sugerido con números.
           fareTypes={fareTypes.map((fare) => ({

@@ -4,10 +4,20 @@ import { revalidatePath } from "next/cache";
 import { serverFetch, toActionError, ApiError } from "@/lib/api/server";
 import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
 import { getActiveReservation } from "@/lib/reservations";
+import { ownerPanelRoutes } from "@/lib/owner-panel";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type { CartItem } from "@/lib/cart-types";
 import type { Reservation } from "@/lib/api/types";
 
 type ActionResult = { success: true } | { error: string };
+
+// Lo que el huésped acaba de crear tiene que verse en el panel de gestión de
+// la propiedad. Se arma con `ownerPanelRoutes` para que este archivo no
+// repita la ruta del panel a mano (ver lib/owner-panel.ts); sigue siendo la de
+// Casa Brava porque este checkout es, por diseño, exclusivo de Tenant 0 —las
+// propiedades mock nunca llaman aquí (ver CLAUDE.md, "Arquitectura
+// multi-tenant").
+const OWNER_PANEL_RESERVATIONS_PATH = ownerPanelRoutes(TENANT_ZERO_SLUG).reservations;
 
 export type CheckoutStayInput = {
   check_in: string;
@@ -27,6 +37,13 @@ export type CheckoutStayInput = {
  * bloqueada. Reimplementarlas aquí no solo sería duplicado, sería inseguro —
  * dos peticiones concurrentes pueden pasar una verificación hecha en el
  * cliente y aun así solaparse. Esta acción solo traduce la respuesta.
+ *
+ * `payment_status` tampoco se manda: si la sesión activa tiene rol `holder`,
+ * el backend crea la estadía con `payment_status = "na"` en vez de
+ * `"pendiente"` (un propietario no paga la renta de su propia propiedad), así
+ * que este mismo flujo de checkout —sin ningún cambio aquí— ya admite
+ * correctamente a un `holder` sin exigirle un cobro simulado pendiente. Ver
+ * `reservaciones.services.crear_reservacion` en el backend y CLAUDE.md.
  */
 export async function checkoutStay(input: CheckoutStayInput): Promise<ActionResult> {
   try {
@@ -42,7 +59,7 @@ export async function checkoutStay(input: CheckoutStayInput): Promise<ActionResu
       },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(OWNER_PANEL_RESERVATIONS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo crear la reservación.") };
@@ -160,7 +177,7 @@ export async function checkoutCartServices(items: CartItem[]): Promise<ActionRes
       }
     }
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(OWNER_PANEL_RESERVATIONS_PATH);
     return { success: true };
   } catch (error) {
     await compensar(creados);

@@ -57,6 +57,7 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   parcial: "Parcial",
   completado: "Completado",
   reembolsado: "Reembolsado",
+  na: "No Aplica (Exento)",
 };
 
 const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
@@ -64,6 +65,7 @@ const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
   parcial: "bg-blue-100 text-blue-700",
   completado: "bg-green-100 text-green-700",
   reembolsado: "bg-purple-100 text-purple-700",
+  na: "border border-neutral-300 bg-neutral-100 text-neutral-700",
 };
 
 function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
@@ -304,6 +306,7 @@ function EditReservationModal({
                 <option value="parcial">Parcial</option>
                 <option value="completado">Completado</option>
                 <option value="reembolsado">Reembolsado</option>
+                <option value="na">No Aplica (NA)</option>
               </select>
             </label>
           </div>
@@ -342,16 +345,23 @@ function CreateReservationModal({
   const [checkOut, setCheckOut] = useState("");
   const [fareTypeId, setFareTypeId] = useState(fareTypes[0]?.id ?? "");
   const [status, setStatus] = useState<ReservationStatus>("pendiente");
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("pendiente");
   // null hasta que el admin toca el campo a mano; a partir de ahí se
   // "congela" en ese valor y deja de recalcularse aunque cambien
   // fechas/tarifa después. Derivado inline en cada render (ver totalAmount
-  // abajo) — sin useEffect/setState, para no chocar con la regla de lint
-  // react-hooks/set-state-in-effect ya documentada en CLAUDE.md.
+  // y paymentStatus abajo) — sin useEffect/setState, para no chocar con la
+  // regla de lint react-hooks/set-state-in-effect ya documentada en
+  // CLAUDE.md.
   const [manualTotalAmount, setManualTotalAmount] = useState<number | null>(null);
+  const [manualPaymentStatus, setManualPaymentStatus] = useState<PaymentStatus | null>(null);
 
   useCloseOnEscape(onClose);
 
+  const selectedGuest = guests.find((guest) => guest.id === guestId);
+  // Mismo default que aplica el backend cuando el panel no manda
+  // `payment_status` explícito: un propietario (`holder`) no paga la renta de
+  // su propia propiedad (ver CLAUDE.md, reglas del rol `holder`). Se
+  // "congela" en cuanto el admin toca el select, igual que `totalAmount`.
+  const paymentStatus = manualPaymentStatus ?? (selectedGuest?.role === "holder" ? "na" : "pendiente");
   const selectedFareType = fareTypes.find((fareType) => fareType.id === fareTypeId);
   const nights =
     checkIn && checkOut
@@ -494,13 +504,14 @@ function CreateReservationModal({
               <span className="text-sm font-medium text-neutral-700">Pago</span>
               <select
                 value={paymentStatus}
-                onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                onChange={(e) => setManualPaymentStatus(e.target.value as PaymentStatus)}
                 className={INPUT_CLASS}
               >
                 <option value="pendiente">Pendiente</option>
                 <option value="parcial">Parcial</option>
                 <option value="completado">Completado</option>
                 <option value="reembolsado">Reembolsado</option>
+                <option value="na">No Aplica (NA)</option>
               </select>
             </label>
           </div>

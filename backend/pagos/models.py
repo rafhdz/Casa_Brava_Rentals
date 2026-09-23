@@ -20,12 +20,20 @@ from django.db import models
 
 
 class PaymentStatus(models.TextChoices):
-    """Equivalente del ENUM `public.payment_status_type`."""
+    """Equivalente del ENUM `public.payment_status_type`.
+
+    `NA` ("No aplica / Exento") no es un movimiento de cobro: es el estado que
+    recibe por defecto la estadía de un propietario (`holder`), que no paga la
+    renta de su propia propiedad. `derivar_estado_de_pago` (en `pagos.services`)
+    lo respeta y no lo reemplaza por `PENDIENTE` solo porque no existan
+    movimientos — ver CLAUDE.md, reglas de negocio para el rol `holder`.
+    """
 
     PENDIENTE = "pendiente", "Pendiente"
     PARCIAL = "parcial", "Parcial"
     COMPLETADO = "completado", "Completado"
     REEMBOLSADO = "reembolsado", "Reembolsado"
+    NA = "na", "No aplica / Exento"
 
 
 class PaymentProvider(models.TextChoices):

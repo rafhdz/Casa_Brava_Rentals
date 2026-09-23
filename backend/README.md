@@ -227,6 +227,47 @@ estadía cuando quien crea es un admin, que puede ajustarlo a mano (descuentos).
 Los precios ya guardados son un *snapshot* del momento de contratar y no se
 recalculan contra el catálogo vigente.
 
+### Estado de cobro (`payment_status`) y el rol `holder`
+
+`PaymentStatus` (`pagos/models.py`) tiene un quinto valor, **`NA`** ("No aplica
+/ Exento"), además de `pendiente`/`parcial`/`completado`/`reembolsado`. Es el
+estado por defecto de la estadía de un **propietario** (`holder`): no paga la
+renta de su propia propiedad, así que su reservación no debe nacer en
+`pendiente` como si fuera un huésped esperando pagar.
+
+* **Quién lo asigna y cuándo.** `crear_reservacion` revisa el rol del
+  **huésped a cuyo nombre se crea la reservación** (`guest.es_holder`, no el
+  de quien hace la petición) y, solo si el payload no manda `payment_status`
+  explícito, lo fija en `na` en vez del default del modelo (`pendiente`).
+  Cubre por igual al propietario que reserva su propia estadía y al admin que
+  la da de alta manualmente por él desde el panel — y sigue siendo posible
+  forzar cualquier otro estado a mano si de verdad hay que cobrarle algo.
+* **`pagos.services.derivar_estado_de_pago` respeta `na`.** La regla general
+  es "sin nada cobrado ⇒ `pendiente`", pero eso reescribiría `na` a
+  `pendiente` la primera vez que algo dispare una resincronización (p. ej.
+  `registrar_pago` sobre esa misma reservación por otro concepto). La función
+  ahora comprueba el `payment_status` actual antes de asumir `pendiente`: si
+  ya está en `na` y no hay ningún movimiento registrado, se queda en `na`. En
+  cuanto exista un cobro real, vuelve a derivarse con la lógica normal
+  (`parcial`/`completado`/`reembolsado`) a partir de ahí.
+* **El solapamiento no distingue por `payment_status`.** `hay_solapamiento`
+  filtra por `status` (`activas()` = `pendiente`/`confirmada`), nunca por
+  `payment_status` — una reservación `na` con estado activo ya bloqueaba el
+  calendario igual que cualquier otra antes de que existiera este estado; no
+  hizo falta ningún cambio ahí.
+* **Un `holder` siempre es `is_active=True`.** `UsuarioManager.create_user`
+  (en `usuarios/models.py`) lo fuerza para ese rol sin importar qué reciba —
+  no es un `setdefault`. Es una salvaguarda defensiva: hoy `is_active` ya es
+  de solo lectura en `UsuarioSerializer` y no forma parte de
+  `UsuarioCreateSerializer`, así que ningún camino de la API puede
+  desactivarlo; esto cierra la puerta si algún día se agrega esa capacidad.
+* **`seed_demo`** da de alta una reservación de demostración para
+  `carlos.ruiz@example.com` (`holder`) en Casa Brava —`status=confirmada`,
+  `payment_status=na`— llamando al propio `reservaciones.services.crear_reservacion`
+  (no un `Reservation.objects.create()` a mano), para que pase por las mismas
+  reglas que cualquier alta real. Es idempotente: solo se crea si ese
+  propietario no tiene ya una reservación vigente en la propiedad.
+
 ### Errores de dominio → HTTP
 
 Un choque de fechas o un bloque ya tomado responde **409 Conflict**, no 400: la

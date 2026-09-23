@@ -2,13 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { serverFetch, serverFetchAll, toActionError } from "@/lib/api/server";
+import { ownerPanelRoutes } from "@/lib/owner-panel";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type { PaymentStatus, Reservation, ReservationStatus, Usuario } from "@/lib/api/types";
 
 type ActionResult = { success: true } | { error: string };
+
+/** Ver la nota de `USERS_PATH` en ../actions.ts. */
+const RESERVATIONS_PATH = ownerPanelRoutes(TENANT_ZERO_SLUG).reservations;
 type QueryResult<T> = { data: T } | { error: string };
 
-// Opciones que alimentan el modal de "Crear reservación".
-export type GuestOption = Pick<Usuario, "id" | "nombre_completo" | "email">;
+// Opciones que alimentan el modal de "Crear reservación". `role` decide el
+// valor por defecto de "Pago" cuando se elige un propietario (ver
+// ReservationsTable.tsx, CreateReservationModal): un `holder` no paga la
+// renta de su propia propiedad, así que su reservación sugiere `na` en vez
+// de `pendiente` — mismo default que aplica el backend cuando el panel no
+// manda `payment_status` explícito (ver CLAUDE.md, reglas del rol `holder`).
+export type GuestOption = Pick<Usuario, "id" | "nombre_completo" | "email" | "role">;
 export type FareTypeOption = { id: string; name: string; surcharge_percentage: number };
 export type PropertySettingsSummary = { nightly_rate: number; security_deposit: number };
 
@@ -71,7 +81,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
       },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(RESERVATIONS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo crear la reservación.") };
@@ -101,7 +111,7 @@ export async function updateReservation(
       body: { ...resto, ...(fare_type_id ? { fare_type: fare_type_id } : {}) },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(RESERVATIONS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo actualizar la reservación.") };
@@ -120,7 +130,7 @@ export async function deleteReservation(reservationId: string): Promise<ActionRe
   try {
     await serverFetch(`/api/reservaciones/reservaciones/${reservationId}/`, { method: "DELETE" });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(RESERVATIONS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo eliminar la reservación.") };

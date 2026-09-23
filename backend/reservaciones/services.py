@@ -32,6 +32,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.utils import timezone
 
+from pagos.models import PaymentStatus
 from propiedades.models import Property, PropertyAccessGrant, PropertyAccessType, PropertySettings
 from reservaciones.models import (
     ESTADOS_ACTIVOS,
@@ -255,6 +256,14 @@ def crear_reservacion(
     explícito (el panel admin permite ajustar el monto a mano, p. ej. para un
     descuento); en el checkout de autoservicio del huésped se omite y el total
     se recalcula aquí.
+
+    `payment_status` por defecto es `pendiente` (default del modelo), salvo
+    para un `guest` con rol `holder`: un propietario no paga la renta de su
+    propia propiedad, así que su estadía nace en `na` ("No aplica / Exento")
+    en vez de `pendiente` — tanto si reserva desde su propia sesión como si un
+    admin la da de alta manualmente a su nombre desde el panel. Solo aplica
+    cuando `payment_status` no viene explícito: si se especifica, se respeta
+    tal cual (p. ej. un admin que de todos modos quiera cobrarle).
     """
     validar_fechas(check_in, check_out)
     if propiedad is None:
@@ -292,6 +301,8 @@ def crear_reservacion(
     }
     if payment_status is not None:
         campos["payment_status"] = payment_status
+    elif guest.es_holder:
+        campos["payment_status"] = PaymentStatus.NA
 
     return Reservation.objects.create(**campos)
 

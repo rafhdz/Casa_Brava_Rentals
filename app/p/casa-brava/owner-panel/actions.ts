@@ -2,9 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { serverFetch, toActionError } from "@/lib/api/server";
+import { ownerPanelRoutes } from "@/lib/owner-panel";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type { ProfileStatus, RoleType, Usuario } from "@/lib/api/types";
 
 type ActionResult = { success: true } | { error: string };
+
+// Ruta a revalidar tras cada escritura. Se arma con `ownerPanelRoutes` en vez
+// de escribirse a mano: es el mismo string que usan la página y OwnerNav, y un
+// panel montado mañana bajo otro slug no puede quedar revalidando el de Casa
+// Brava por descuido (ver lib/owner-panel.ts).
+const USERS_PATH = ownerPanelRoutes(TENANT_ZERO_SLUG).root;
 
 /**
  * Contraseña temporal fija asignada a toda cuenta creada desde /admin.
@@ -48,7 +56,7 @@ export async function createUser(
       },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel");
+    revalidatePath(USERS_PATH);
     return { success: true };
   } catch (error) {
     // El backend ya devuelve "Ya existe un/a usuario con este/a email." para el
@@ -73,7 +81,7 @@ export async function updateUser(
   try {
     await serverFetch<Usuario>(`/api/usuarios/${userId}/`, { method: "PATCH", body: data });
 
-    revalidatePath("/p/casa-brava/owner-panel");
+    revalidatePath(USERS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo actualizar el usuario.") };
@@ -89,7 +97,7 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
   try {
     await serverFetch(`/api/usuarios/${userId}/`, { method: "DELETE" });
 
-    revalidatePath("/p/casa-brava/owner-panel");
+    revalidatePath(USERS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo eliminar el usuario.") };

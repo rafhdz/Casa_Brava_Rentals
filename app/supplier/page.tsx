@@ -6,6 +6,11 @@ import { PROPERTIES } from "@/lib/mock/marketplace-data";
 // propósito: no existe todavía integración real de pagos por anfitrión (ver
 // "Integración futura planeada" en CLAUDE.md) ni una tabla de reservaciones
 // por propiedad fuera de Casa Brava.
+//
+// Lo único NO simulado de esta pantalla es el acceso al panel de gestión de
+// Casa Brava desde la tabla (ver components/SupplierPropertiesTable.tsx): es
+// un enlace de navegación a una pantalla que existe, no una escritura contra
+// una propiedad mock.
 const STRIPE_CONNECT_STATUS: "linked" | "pending" = "pending";
 const SIMULATED_OCCUPANCY_PERCENT = 62;
 
@@ -17,7 +22,9 @@ export default function SupplierPage() {
           <h1 className="text-2xl font-semibold text-neutral-900">Mis propiedades</h1>
           <p className="mt-1 text-sm text-neutral-500">
             Portal de anfitrión de Parras Home Hub — esqueleto de navegación,
-            sin escritura real todavía.
+            sin escritura real todavía. Casa Brava es la única propiedad con
+            panel de gestión propio: entra desde su botón{" "}
+            <span className="font-medium text-neutral-700">Panel de gestión</span>.
           </p>
         </div>
 
@@ -66,7 +73,10 @@ export default function SupplierPage() {
           Este portal todavía no da de alta propiedades nuevas ni administra
           disponibilidad — hoy solo lista el directorio mock de Parras Home
           Hub. El alta real de anfitriones llega junto con el soporte
-          multi-propiedad en el backend.
+          multi-propiedad en el backend. El enlace al panel de gestión de Casa
+          Brava sigue protegido por su propio guard de rol: pide sesión con rol
+          propietario o administrador, igual que si se escribiera la URL a
+          mano.
         </p>
       </div>
     </div>

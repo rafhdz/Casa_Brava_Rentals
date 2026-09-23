@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { serverFetch, toActionError } from "@/lib/api/server";
+import { ownerPanelRoutes } from "@/lib/owner-panel";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type {
   FareType,
   FoodMenu,
@@ -30,7 +32,8 @@ import type {
 
 export type CatalogActionResult = { success: true } | { error: string };
 
-const CATALOGS_PATH = "/p/casa-brava/owner-panel/catalogos";
+/** Ver la nota de `USERS_PATH` en ../actions.ts. */
+const CATALOGS_PATH = ownerPanelRoutes(TENANT_ZERO_SLUG).catalogos;
 
 // Endpoints de cada catálogo. Agrupados aquí para que la ruta de un catálogo
 // se escriba una sola vez y no se disperse entre sus tres acciones.

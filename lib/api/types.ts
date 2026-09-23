@@ -56,7 +56,13 @@ export type Paginated<T> = {
 export type RoleType = "admin" | "holder" | "guest";
 export type ProfileStatus = "activo" | "invitado";
 export type ReservationStatus = "pendiente" | "confirmada" | "cancelada" | "finalizada";
-export type PaymentStatus = "pendiente" | "parcial" | "completado" | "reembolsado";
+/**
+ * `na` ("No aplica / Exento") es el valor por defecto de la estadía de un
+ * propietario (`holder`): no paga la renta de su propia propiedad, así que su
+ * reservación nace exenta en vez de `pendiente`. Ver CLAUDE.md, reglas de
+ * negocio del rol `holder`.
+ */
+export type PaymentStatus = "pendiente" | "parcial" | "completado" | "reembolsado" | "na";
 export type PaymentProvider = "simulado" | "stripe";
 export type MealType = "Desayuno" | "Almuerzo" | "Cena";
 
@@ -227,6 +233,23 @@ export type GuestResumen = {
   email: string;
 };
 
+/**
+ * Propiedad a la que pertenece una reservación, anidada por el backend
+ * (`PropertyResumenSerializer`): solo lo necesario para identificarla, no la
+ * ficha completa con precio y aforo.
+ *
+ * Es el contrato REAL de Django —la tabla `properties` ya existe y
+ * `Reservation.property` es una FK obligatoria—, no el directorio mock de
+ * lib/mock/marketplace-data.ts. El `slug` es el mismo string en ambos lados
+ * para Tenant 0 ("casa-brava"), que es justo lo que permite cruzarlos sin
+ * inventar un mapa de equivalencias.
+ */
+export type PropertyResumen = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 export type SpaBooking = {
   id: string;
   reservation: string;
@@ -277,6 +300,8 @@ export type WineOrder = {
 export type Reservation = {
   id: string;
   guest: GuestResumen;
+  /** Propiedad de la estadía. Obligatoria en el modelo: nunca llega vacía. */
+  property: PropertyResumen;
   check_in: IsoDate;
   check_out: IsoDate;
   noches: number;

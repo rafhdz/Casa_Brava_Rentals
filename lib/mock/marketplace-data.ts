@@ -99,6 +99,14 @@ export function getPropertyBySlug(slug: string): Property | undefined {
   return PROPERTIES.find((property) => property.slug === slug);
 }
 
+// Nombre legible de una propiedad del directorio. Cae al propio slug si no
+// existe (una propiedad servida por Django que todavía no está en este mock,
+// por ejemplo): así una pantalla que la liste muestra algo identificable en
+// vez de un hueco.
+export function getPropertyName(slug: string): string {
+  return getPropertyBySlug(slug)?.name ?? slug;
+}
+
 // Usado por middleware.ts para decidir si `/p/<slug>/**` exige sesión. Un
 // slug que no existe en PROPERTIES no se considera protegido aquí — la
 // propia página responde con notFound(), no el middleware.

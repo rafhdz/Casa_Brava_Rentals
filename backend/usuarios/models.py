@@ -58,6 +58,14 @@ class UsuarioManager(BaseUserManager):
             raise ValueError("El correo electrónico es obligatorio.")
         extra_fields.setdefault("role", RoleType.GUEST)
         extra_fields.setdefault("status", ProfileStatus.ACTIVO)
+        # Un propietario (`holder`) siempre queda activo: es quien recibe las
+        # reservaciones `na` de su propia propiedad (ver
+        # `reservaciones.services.crear_reservacion`), y una cuenta inactiva lo
+        # dejaría sin poder operar su propio panel de gestión. No es un
+        # `setdefault`: se fuerza incluso si algún caller futuro intentara
+        # pasar `is_active=False` para este rol.
+        if extra_fields.get("role") == RoleType.HOLDER:
+            extra_fields["is_active"] = True
         usuario = self.model(email=self.normalize_email(email), **extra_fields)
         usuario.set_password(password)
         usuario.save(using=self._db)

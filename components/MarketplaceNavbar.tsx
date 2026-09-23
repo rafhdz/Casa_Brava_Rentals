@@ -5,12 +5,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
-import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 
 // Nav pública del marketplace territorial (Parras Home Hub): /, /sobre-nosotros,
 // /conoce-parras, /supplier. Ver la nota en TenantNavbar.tsx sobre por qué
 // existen dos pares Navbar/Footer — este no sabe nada de carrito/reservación,
 // esa lógica vive en TenantNavbar y no debe mezclarse aquí.
+//
+// "Mi cuenta" apunta a /perfil y NUNCA a la fachada de una propiedad: es el
+// botón de la sesión (datos de la cuenta y cerrar sesión), no un atajo a
+// reservar. Mandarlo a `/p/<slug>` —como hacía antes— llevaba a un huésped de
+// PHH a Casa Brava, una propiedad por invitación con la que su cuenta puede no
+// tener ninguna relación; y a quien sí la tiene, lo dejaba sin ninguna vía
+// visible para cerrar sesión desde el marketplace. Mismo destino que el ícono
+// de perfil de TenantNavbar, para que el botón de cuenta signifique lo mismo
+// en los dos productos.
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/sobre-nosotros", label: "Sobre nosotros" },
@@ -55,7 +63,7 @@ export default function MarketplaceNavbar() {
           </Link>
           {user ? (
             <Link
-              href={`/p/${TENANT_ZERO_SLUG}`}
+              href="/perfil"
               className="rounded-full bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-neutral-700"
             >
               Mi cuenta
@@ -109,7 +117,7 @@ export default function MarketplaceNavbar() {
           </Link>
           {user ? (
             <Link
-              href={`/p/${TENANT_ZERO_SLUG}`}
+              href="/perfil"
               onClick={() => setIsMenuOpen(false)}
               className="mt-1 rounded-full bg-neutral-900 px-3 py-2 text-center text-sm font-semibold text-white"
             >
