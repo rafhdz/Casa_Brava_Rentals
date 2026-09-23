@@ -107,7 +107,7 @@ Abrir <http://localhost:3000>.
 Casa_Brava_Rentals/
 ├── app/                          Rutas del frontend (App Router)
 │   ├── layout.tsx                Layout raíz: Navbar, Footer, sesión y carrito
-│   ├── page.tsx                  Landing pública de Parras Home Hub (buscador + directorio)
+│   ├── page.tsx                  Landing editorial de Parras Home Hub (hero, directorio, comisiones, experiencias, reputación)
 │   ├── globals.css               Estilos base y tokens de Tailwind
 │   ├── sobre-nosotros/page.tsx   Misión de Parras Home Hub
 │   ├── conoce-parras/page.tsx    Guía del destino (enoturismo, clima, patrimonio)
@@ -158,7 +158,7 @@ Casa_Brava_Rentals/
 │   │   └── marketplace.ts        Tipos del marketplace mock: Property, AccessGrant,
 │   │                             y el vínculo cuenta ↔ propiedad del panel PHH
 │   ├── mock/
-│   │   └── marketplace-data.ts   Directorio de propiedades mock + TENANT_ZERO_SLUG
+│   │   └── marketplace-data.ts   Directorio de propiedades mock, colecciones curadas + TENANT_ZERO_SLUG
 │   ├── AuthContext.tsx           Sesión disponible para los componentes
 │   ├── CartContext.tsx           Carrito (navegador)
 │   ├── cart-types.ts             Tipos del carrito
@@ -218,10 +218,11 @@ despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
 | Barra superior del marketplace (PHH) | [components/MarketplaceNavbar.tsx](components/MarketplaceNavbar.tsx) |
 | El botón de cuenta ("Mi cuenta" en PHH, el ícono de usuario en Casa Brava) | [components/MarketplaceNavbar.tsx](components/MarketplaceNavbar.tsx), [components/TenantNavbar.tsx](components/TenantNavbar.tsx) — los dos llevan a `/perfil`, nunca a la fachada de una propiedad |
 | Pie de página del marketplace (PHH) | [components/MarketplaceFooter.tsx](components/MarketplaceFooter.tsx) |
-| Directorio de propiedades y su filtro por huéspedes | [components/PropertyDirectory.tsx](components/PropertyDirectory.tsx) |
-| Barra de búsqueda flotante (fechas, huéspedes, invitación) | [components/MarketplaceSearchBar.tsx](components/MarketplaceSearchBar.tsx) |
-| Tarjeta de una propiedad en el directorio | [components/PropertyCard.tsx](components/PropertyCard.tsx) |
-| **Agregar/editar/quitar una propiedad del directorio mock** | [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — array `PROPERTIES` |
+| Directorio de propiedades, su filtro por huéspedes y las pestañas de colecciones curadas | [components/PropertyDirectory.tsx](components/PropertyDirectory.tsx) |
+| Barra de búsqueda flotante (fechas con fin de semana resaltado, huéspedes, canje de invitación en vivo) | [components/MarketplaceSearchBar.tsx](components/MarketplaceSearchBar.tsx) |
+| Tarjeta de una propiedad (carrusel en hover, badges, calificación, amenidades) | [components/PropertyCard.tsx](components/PropertyCard.tsx) |
+| Comparativa interactiva de comisiones (PHH vs. Airbnb) de la landing | [components/CommissionComparison.tsx](components/CommissionComparison.tsx) |
+| **Agregar/editar/quitar una propiedad o una colección curada del directorio mock** | [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — arrays `PROPERTIES`/`COLLECTIONS` |
 | Formulario de reservación mock (propiedades sin backend) | [components/MockReservarForm.tsx](components/MockReservarForm.tsx) |
 | Pestañas del portal de anfitrión | [components/SupplierNav.tsx](components/SupplierNav.tsx) |
 | Tabla "Mis propiedades" del portal de anfitrión (incluye el botón "Panel de gestión") | [components/SupplierPropertiesTable.tsx](components/SupplierPropertiesTable.tsx) |

@@ -29,8 +29,8 @@ El **directorio** territorial que ve el frontend (landing pública, tarjetas de 
 
 ### La capa mock y su frontera con `lib/api/`
 
-- **[lib/types/marketplace.ts](lib/types/marketplace.ts)** — `Property`, `AccessType`, `AccessGrant`. Deliberadamente separados de los tipos de [lib/api/types.ts](lib/api/types.ts): unos describen lo que devuelve Django (Casa Brava), los otros el directorio mock.
-- **[lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts)** — `TENANT_ZERO_SLUG` (`"casa-brava"`), `PROPERTIES` (4: Casa Brava `INVITE_ONLY` + 3 ficticias `OPEN`), `ACCESS_GRANTS`, y los helpers `getPropertyBySlug`, `isInviteOnlyBySlug`, `validateInviteCode`. Es JS/TS puro, sin ningún import de Node ni de `next/headers` — lo importa `middleware.ts`, que corre en el Edge Runtime en cada navegación, así que un import roto ahí no es un error de tipos sutil, es un 500 en todas las rutas del sitio.
+- **[lib/types/marketplace.ts](lib/types/marketplace.ts)** — `Property` (con `coordinates`, `ratings` desglosadas, `verificationLevel`, `tags`, `amenityGroups` y `collections`), `AccessType`, `AccessGrant`, y los tipos auxiliares `GeoCoordinates`, `PropertyRatings`, `VerificationLevel`, `AmenityCategoryKey`/`PropertyAmenityGroup`/`AMENITY_CATEGORY_LABELS` y `CollectionKey`. Deliberadamente separados de los tipos de [lib/api/types.ts](lib/api/types.ts): unos describen lo que devuelve Django (Casa Brava), los otros el directorio mock. `AMENITY_CATEGORY_LABELS` es la única constante en tiempo de ejecución de este archivo (mismo patrón que `ESTADOS_ACTIVOS`/`MEAL_TYPES` en `lib/api/types.ts`); el mapeo categoría → ícono de `lucide-react` vive en `components/PropertyCard.tsx`, no aquí, para no importar `lucide-react` en un árbol de tipos que también resuelve `middleware.ts`.
+- **[lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts)** — `TENANT_ZERO_SLUG` (`"casa-brava"`), `PROPERTIES` (4: Casa Brava `INVITE_ONLY` + `hacienda-san-lorenzo`/`quinta-los-nogales`/`loft-santo-madero` `OPEN`, cada una con galería, coordenadas, calificación desglosada y amenidades categorizadas), `COLLECTIONS` (metadatos de las pestañas "Casonas Coloniales" / "Viñedos & Bodegas" / "Retiros de Media Semana / Nómadas Digitales" que filtra `components/PropertyDirectory.tsx`), `ACCESS_GRANTS` (código de demo vigente: `BRAVA2026`), y los helpers `getPropertyBySlug`, `isInviteOnlyBySlug`, `validateInviteCode`. Es JS/TS puro, sin ningún import de Node, de `next/headers` ni de `lucide-react` — lo importa `middleware.ts`, que corre en el Edge Runtime en cada navegación, así que un import roto ahí no es un error de tipos sutil, es un 500 en todas las rutas del sitio.
 - **Frontera dura, sin excepciones**: ningún código que atienda una propiedad mock (cualquier slug distinto de `TENANT_ZERO_SLUG`) puede llamar a `checkoutStay`, `checkoutCartServices`, `serverFetch(All)` ni `getActiveReservation`. Esos asumen un backend real con IDs (tarifas, masajistas, menús, vinos) que las propiedades mock no tienen — usarlos con un slug/id inventado produciría un 404/400 real contra Django o, peor, crearía una reservación real a nombre de una propiedad que no existe ahí. Cada archivo bajo `app/p/[slug]/` bifurca explícitamente con `if (slug === TENANT_ZERO_SLUG)` para mantener esta frontera visible en el propio código, no solo en este documento.
 - **Código de invitación ≠ login.** `AccessGrant`/`validateInviteCode` solo *encuentran* una propiedad `INVITE_ONLY` para navegar a `/p/<slug>` — no crean sesión. Si esa propiedad exige sesión (ver guards de ruta), `middleware.ts` la sigue exigiendo después del canje. No es una vía paralela de autenticación.
 
@@ -54,7 +54,7 @@ Dos marcas, dos archivos en `public/icons/system/`: **`PHH_logo.svg`** (Parras H
 Regla de visualización, sin excepciones:
 
 - **`CBR_logo.svg`** es exclusivo de `/p/casa-brava/**` — la fachada, `reservar`, `servicios/*`, `checkout` **y** su panel de gestión (`/p/casa-brava/owner-panel/**`).
-- **`PHH_logo.svg`** es para todo lo demás: la landing (`/`), `/sobre-nosotros`, `/conoce-parras`, `/supplier`, `/login`, `/register`, el panel universal `/admin`, y también `/p/<slug>` de cualquier propiedad `OPEN` que **no** sea Casa Brava (`villa-del-vinedo`, `casa-de-la-sierra`, `loft-boutique-centro`).
+- **`PHH_logo.svg`** es para todo lo demás: la landing (`/`), `/sobre-nosotros`, `/conoce-parras`, `/supplier`, `/login`, `/register`, el panel universal `/admin`, y también `/p/<slug>` de cualquier propiedad `OPEN` que **no** sea Casa Brava (`hacienda-san-lorenzo`, `quinta-los-nogales`, `loft-santo-madero`).
 
 `MarketplaceNavbar.tsx` es de un solo público (PHH), así que siempre pinta `PHH_logo.svg` sin condicional. `TenantNavbar.tsx` sí necesita decidir en tiempo de render, porque también monta en `/p/<slug>` de las tres propiedades `OPEN` mock (ver "Arquitectura multi-tenant"): calcula `isCasaBravaScope = pathname.startsWith(\`/p/${TENANT_ZERO_SLUG}\`)` y alterna entre `CBR_logo.svg` (con el logo enlazando a `/p/${TENANT_ZERO_SLUG}`) y `PHH_logo.svg` (enlazando a `/`) según ese cálculo — nunca hardcodear el string `"casa-brava"` para esta comparación, usar siempre `TENANT_ZERO_SLUG`. `MarketplaceFooter.tsx`/`TenantFooter.tsx` no muestran ningún logo (solo texto), así que no necesitan este condicional.
 
@@ -65,6 +65,52 @@ Cada página bajo `app/p/[slug]/` bifurca por slug:
 - **`slug === "casa-brava"`** → la lógica real, movida tal cual desde las antiguas `app/page.tsx`, `app/reservar/page.tsx` y `app/servicios/{spa,comida,vinos}/page.tsx` (mismos fetches, mismos Server Actions, mismos componentes `ReservarForm`/`SpaBookingForm`/`FoodBookingForm`/`WineBookingForm` — solo se actualizaron los `href` internos que apuntaban a `/reservar`/`/servicios/*`).
 - **Cualquier otro slug** (las 3 propiedades `OPEN`) → una versión mock sin ningún fetch al backend: `MockReservarForm` para fechas/huéspedes/resumen, y `ServiceAccessNotice` (reutilizado, sin cambios) para spa/comida/vinos con copy "próximamente" — no se construyó un catálogo mock completo porque eso se leería como funcionalidad real rota.
 - **`/p/[slug]/checkout`** es **aditivo**, no reemplaza el flujo real: para Casa Brava, `ReservarForm`/`CartView` siguen llamando a `checkoutStay`/`checkoutCartServices` y redirigiendo a `/pago-exitoso` exactamente como antes de la Fase 4 — cero riesgo de doble escritura. La ruta `/p/casa-brava/checkout` es una pantalla de **solo lectura** (lee `getActiveReservation()`, muestra `gran_total` ya calculado por el backend) para quien navegue ahí directamente. Para las propiedades `OPEN` es la única pantalla de "pago": recalcula el total con `basePricePerNight` mock a partir de la query string que le pasó `MockReservarForm`, y el botón "Confirmar" solo redirige a `/pago-exitoso` — nunca escribe nada.
+
+### Landing pública (`app/page.tsx`) y directorio editorial
+
+Landing de PHH con formato de revista arquitectónica: hero editorial (titular +
+micro-widget de clima/vendimia, ambos calculados a partir del mes actual del
+servidor — no hay integración con una API de clima real, el copy dice
+"típico de temporada" a propósito), el directorio de propiedades, la
+comparativa de comisiones y dos secciones de contenido puramente editorial
+(experiencias locales, protocolo de reputación). Todo sigue siendo Server
+Component estático: ningún `fetch`, toda la data sale de `PROPERTIES`.
+
+- **[components/PropertyDirectory.tsx](components/PropertyDirectory.tsx)** —
+  además del filtro por capacidad de huéspedes, aloja las pestañas de
+  "Curated Collections" (`COLLECTIONS` en `lib/mock/marketplace-data.ts`):
+  filtra `properties` por `Property.collections` antes de pasarlas a
+  `PropertyCard`. Es el único componente que decide qué tarjetas se muestran,
+  a propósito — evita que el filtro por huéspedes y el filtro por colección
+  vivan en dos sitios distintos.
+- **[components/PropertyCard.tsx](components/PropertyCard.tsx)** — carrusel de
+  fotos que auto-avanza mientras el mouse está encima (`onMouseEnter`
+  arranca un `setInterval`, `onMouseLeave` lo limpia y reinicia el índice);
+  badge de acceso (gris neutro para `OPEN`, negro con acento dorado para
+  `INVITE_ONLY`); calificación, hasta 3 categorías de amenidades y el badge de
+  verificación, todo leído de `Property`. El mapeo `AmenityCategoryKey` →
+  ícono de `lucide-react` vive aquí (`AMENITY_ICONS`), no en
+  `lib/mock/marketplace-data.ts` ni en `lib/types/marketplace.ts` (ver la
+  frontera del Edge Runtime más arriba).
+- **[components/MarketplaceSearchBar.tsx](components/MarketplaceSearchBar.tsx)**
+  — el panel de "¿Tienes una invitación?" ya no delega a un componente
+  `InviteCodeForm` (se eliminó: quedó sin otro consumidor tras este rediseño).
+  Valida el código en vivo contra `validateInviteCode()` al enviarse y
+  muestra un badge esmeralda "Acceso Concedido — Residencia Privada" con
+  acceso directo a `/p/<slug>`, o un error inline si no coincide — nunca
+  navega ni recarga por sí solo. El calendario de fechas resalta fines de
+  semana con `modifiers={{ weekend: isWeekend }}` de `date-fns` (un
+  pseudo-elemento `after:`, no un cambio de fondo/texto, para no competir con
+  `selected`/`range_*` — mismo patrón que `AVAILABILITY_MODIFIERS_CLASS_NAMES`
+  en `Calendar.tsx`).
+- **[components/CommissionComparison.tsx](components/CommissionComparison.tsx)**
+  — módulo interactivo del Business Plan de PHH. Las tasas de Airbnb
+  (split-fee ~3% anfitrión + ~16% huésped, host-only ~16% anfitrión) y de PHH
+  (10% fijo, siempre al anfitrión) son constantes locales, ilustrativas del
+  modelo de negocio del marketplace — no hay ningún endpoint de comisiones en
+  Django. El slider solo recalcula aritmética de cliente (`amount * (1 -
+  hostFeePercent/100)`, etc.); no toca `lib/api/` ni las reglas de negocio
+  reales de Casa Brava.
 
 ### `/supplier`: portal de anfitrión sin mutaciones
 
