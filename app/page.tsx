@@ -1,35 +1,9 @@
-import { Car, CheckCircle2, CloudSun, Eye, EyeOff, Grape, Hourglass, Snowflake, Sparkles, Sun, UtensilsCrossed } from "lucide-react";
+import { Car, CheckCircle2, Eye, EyeOff, Grape, Hourglass, Sparkles, UtensilsCrossed } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import CommissionComparison from "@/components/CommissionComparison";
+import ParrasStatusWidget from "@/components/ParrasStatusWidget";
 import PropertyDirectory from "@/components/PropertyDirectory";
 import { PROPERTIES } from "@/lib/mock/marketplace-data";
-
-type SeasonalClimate = { label: string; tempRange: string; Icon: LucideIcon };
-
-// Contenido puramente editorial/ilustrativo del micro-widget del hero — no hay
-// integración con una API de clima real (no está configurada ninguna, y el
-// proyecto no hace llamadas salientes fuera de lib/api/). Se calcula a partir
-// del mes actual, no de datos en vivo, por eso el copy dice "típico" y no
-// "en vivo". El ciclo de vendimia (poda → brote → cosecha → reposo) sí
-// corresponde al calendario real del viñedo en Parras de la Fuente.
-function getVendimiaPhase(monthIndex: number): { label: string; description: string } {
-  if (monthIndex >= 6 && monthIndex <= 8) {
-    return { label: "Vendimia en curso", description: "Julio–septiembre: cosecha activa en los viñedos de Parras." };
-  }
-  if (monthIndex === 9) {
-    return { label: "Post-vendimia", description: "La uva ya se cosechó; las bodegas inician la fermentación." };
-  }
-  if (monthIndex >= 10 || monthIndex <= 1) {
-    return { label: "Poda de invierno", description: "Las vides descansan mientras se preparan para el siguiente ciclo." };
-  }
-  return { label: "Brote de primavera", description: "Las vides reverdecen de cara a la próxima vendimia." };
-}
-
-function getSeasonalClimate(monthIndex: number): SeasonalClimate {
-  if (monthIndex >= 5 && monthIndex <= 8) return { label: "Verano cálido", tempRange: "24–34°C", Icon: Sun };
-  if (monthIndex >= 11 || monthIndex <= 1) return { label: "Invierno fresco", tempRange: "4–18°C", Icon: Snowflake };
-  return { label: "Clima templado", tempRange: "14–26°C", Icon: CloudSun };
-}
 
 const LOCAL_EXPERIENCES: { icon: LucideIcon; title: string; description: string }[] = [
   {
@@ -72,16 +46,14 @@ const REPUTATION_STEPS: { icon: LucideIcon; title: string; description: string }
   },
 ];
 
-// Landing territorial pública de Parras Home Hub. Sin fetch de servidor: el
-// directorio es 100% mock (ver lib/mock/marketplace-data.ts) porque el
-// backend real (Django) todavía solo conoce una propiedad — Casa Brava, cuya
-// fachada real vive en app/p/[slug]/page.tsx bajo /p/casa-brava, no aquí.
+// Landing territorial pública de Parras Home Hub. El directorio sigue siendo
+// 100% mock (ver lib/mock/marketplace-data.ts) porque el backend real
+// (Django) todavía solo conoce una propiedad — Casa Brava, cuya fachada real
+// vive en app/p/[slug]/page.tsx bajo /p/casa-brava, no aquí. El único fetch
+// de esta página es el de <ParrasStatusWidget/>, que hace el suyo propio
+// contra Open-Meteo (ver lib/weather.ts) — HomePage no necesita volverse
+// async para eso, ver el comentario de ese componente.
 export default function HomePage() {
-  const monthIndex = new Date().getMonth();
-  const vendimia = getVendimiaPhase(monthIndex);
-  const climate = getSeasonalClimate(monthIndex);
-  const ClimateIcon = climate.Icon;
-
   return (
     <div className="flex flex-col">
       <section className="border-b border-neutral-200 bg-neutral-50">
@@ -102,27 +74,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-4 rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Parras de la Fuente, hoy</p>
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
-                <ClimateIcon className="h-5 w-5" strokeWidth={1.5} aria-hidden />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-neutral-900">{climate.label}</p>
-                <p className="text-xs text-neutral-500">Temperatura típica de temporada: {climate.tempRange}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 border-t border-neutral-100 pt-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
-                <Grape className="h-5 w-5" strokeWidth={1.5} aria-hidden />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-neutral-900">{vendimia.label}</p>
-                <p className="text-xs text-neutral-500">{vendimia.description}</p>
-              </div>
-            </div>
-          </div>
+          <ParrasStatusWidget />
         </div>
       </section>
 

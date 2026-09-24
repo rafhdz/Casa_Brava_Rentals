@@ -167,6 +167,7 @@ Casa_Brava_Rentals/
 │   ├── platform-metrics.ts       KPIs de /admin calculados sobre datos reales (funciones puras)
 │   ├── revenue-simulator.ts      Motor del simulador de Revenue Management de /supplier
 │   ├── commission-rates.ts       Comisión PHH (10 %) y referencia Airbnb (16 %)
+│   ├── weather.ts                Clima en vivo de Open-Meteo + fase del ciclo enológico del hero de la landing
 │   └── format.ts                 Formato de fechas, horas y dinero (centavos: toCents / toDecimalString)
 │
 ├── middleware.ts                 Protección de rutas y refresco de sesión
@@ -221,6 +222,7 @@ despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
 | Pie de página del marketplace (PHH) | [components/MarketplaceFooter.tsx](components/MarketplaceFooter.tsx) |
 | Directorio de propiedades, su filtro por huéspedes y las pestañas de colecciones curadas | [components/PropertyDirectory.tsx](components/PropertyDirectory.tsx) |
 | Barra de búsqueda flotante (fechas con fin de semana resaltado, huéspedes, canje de invitación en vivo) | [components/MarketplaceSearchBar.tsx](components/MarketplaceSearchBar.tsx) |
+| Widget "Parras de la Fuente, hoy" del hero (clima en vivo de Open-Meteo + ciclo enológico) | [components/ParrasStatusWidget.tsx](components/ParrasStatusWidget.tsx), [lib/weather.ts](lib/weather.ts) |
 | Tarjeta de una propiedad (carrusel en hover, badges, calificación, amenidades) | [components/PropertyCard.tsx](components/PropertyCard.tsx) |
 | Comparativa interactiva de comisiones (PHH vs. Airbnb) de la landing | [components/CommissionComparison.tsx](components/CommissionComparison.tsx) |
 | **Agregar/editar/quitar una propiedad o una colección curada del directorio mock** | [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — arrays `PROPERTIES`/`COLLECTIONS` |

@@ -69,13 +69,39 @@ Cada página bajo `app/p/[slug]/` bifurca por slug:
 ### Landing pública (`app/page.tsx`) y directorio editorial
 
 Landing de PHH con formato de revista arquitectónica: hero editorial (titular +
-micro-widget de clima/vendimia, ambos calculados a partir del mes actual del
-servidor — no hay integración con una API de clima real, el copy dice
-"típico de temporada" a propósito), el directorio de propiedades, la
+`ParrasStatusWidget`, ver abajo), el directorio de propiedades, la
 comparativa de comisiones y dos secciones de contenido puramente editorial
-(experiencias locales, protocolo de reputación). Todo sigue siendo Server
-Component estático: ningún `fetch`, toda la data sale de `PROPERTIES`.
+(experiencias locales, protocolo de reputación). `HomePage` sigue siendo un
+Server Component **sincrónico** (no necesita `async`): el directorio sale de
+`PROPERTIES` (sin `fetch`), y el único dato en vivo de la página —el clima—
+lo resuelve `<ParrasStatusWidget/>` con su propio `fetch`, como hijo async
+independiente (ver el punto siguiente para el porqué).
 
+- **[lib/weather.ts](lib/weather.ts)** / **[components/ParrasStatusWidget.tsx](components/ParrasStatusWidget.tsx)**
+  — el widget "Parras de la Fuente, hoy" del hero ya no es contenido
+  estático calculado del mes: `getParrasWeather()` pide clima real a
+  **Open-Meteo** (`https://api.open-meteo.com/v1/forecast`, coordenadas fijas
+  de Parras de la Fuente) con `{ next: { revalidate: 3600 } }` (caché ISR de
+  1 hora, mismo mecanismo de `fetch` de Next.js que usa `lib/api/` contra
+  Django, aunque este es el **único** destino fuera de Django al que el
+  frontend llama; no rompe "el frontend no reimplementa reglas de negocio"
+  porque no hay ninguna regla de negocio aquí, solo clima público de solo
+  lectura). Un `AbortController` con timeout de 5 s, cualquier respuesta no
+  `ok` y cualquier payload con forma inesperada caen los tres al mismo
+  fallback: `getSeasonalFallback()` devuelve un rango de temperatura típico
+  de la temporada (`isLive: false`), nunca lanza — el widget no puede
+  romperse porque Open-Meteo esté caído. `getVendimiaPhase(monthIndex)` es
+  aparte y **pura** (no depende de red): tres fases fijas por mes —
+  julio–septiembre "Vendimia en curso", octubre–febrero "Maduración y poda",
+  marzo–junio "Brotación y floración".
+  `ParrasStatusWidget` es un **Server Component `async` que hace su propio
+  fetch** en vez de recibir los datos por props de `HomePage`: no hay ningún
+  estado de cliente que lo obligue a separarse en "page fetch, form
+  interactúa" (esa regla es para Client Components con `useState`/handlers),
+  así que se autocontiene — mismo patrón que `checkTenantZeroChannel()` en
+  `app/supplier/page.tsx`. El mapeo `WeatherIconKey` → ícono de
+  `lucide-react` (`WEATHER_ICONS`) vive en el componente, no en
+  `lib/weather.ts`, igual que `AMENITY_ICONS` en `PropertyCard.tsx`.
 - **[components/PropertyDirectory.tsx](components/PropertyDirectory.tsx)** —
   además del filtro por capacidad de huéspedes, aloja las pestañas de
   "Curated Collections" (`COLLECTIONS` en `lib/mock/marketplace-data.ts`):
