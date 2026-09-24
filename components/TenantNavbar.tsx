@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LogOut, ShoppingCart, User } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { useCart } from "@/lib/CartContext";
+import { ownerPanelBasePath } from "@/lib/owner-panel";
 import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 
 // Nav de la experiencia de huésped y de gestión de Casa Brava (Tenant 0):
@@ -15,7 +16,9 @@ import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 // pasaron a MarketplaceNavbar (ver esa nota en Navbar.tsx). No fusionar de
 // nuevo en un solo componente: son dos audiencias distintas (ver CLAUDE.md,
 // "Arquitectura multi-tenant").
-const OWNER_PANEL_PREFIX = `/p/${TENANT_ZERO_SLUG}/owner-panel`;
+// Dentro del panel de gestión no se muestra el carrito: es la vista de quien
+// administra la propiedad, no la de quien se hospeda.
+const OWNER_PANEL_PREFIX = ownerPanelBasePath(TENANT_ZERO_SLUG);
 
 export default function TenantNavbar() {
   const router = useRouter();

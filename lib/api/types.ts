@@ -57,11 +57,14 @@ export type RoleType = "admin" | "holder" | "guest";
 export type ProfileStatus = "activo" | "invitado";
 export type ReservationStatus = "pendiente" | "confirmada" | "cancelada" | "finalizada";
 /**
- * `"na"` ("No aplica") marca una estancia **exenta de cobro**: la de un
- * propietario (`holder`) en su propia casa. No se deriva de movimientos — la
- * declara el admin, y el backend la rechaza para cualquier huésped que no sea
- * `holder` (ver `reservaciones.services._validar_exencion`). Una reservación
- * exenta no suma al GMV de la plataforma.
+ * `na` ("No aplica / Exento") es el valor por defecto de la estadía de un
+ * propietario (`holder`): no paga la renta de su propia propiedad, así que su
+ * reservación nace exenta en vez de `pendiente`. Ver CLAUDE.md, reglas de
+ * negocio del rol `holder`.
+ *
+ * Solo es válido para un `holder`: el backend rechaza `na` para cualquier otro
+ * huésped (`reservaciones.services._validar_exencion`), y una reservación
+ * exenta no suma al GMV de la plataforma (lib/platform-metrics.ts).
  */
 export type PaymentStatus = "pendiente" | "parcial" | "completado" | "reembolsado" | "na";
 export type PaymentProvider = "simulado" | "stripe";
@@ -153,13 +156,6 @@ export type PropertyListing = {
   base_price_per_night: Decimal;
   max_guests: number;
   is_active: boolean;
-};
-
-/** Datos mínimos de la propiedad que trae anidados una reservación. */
-export type PropertyResumen = {
-  id: string;
-  name: string;
-  slug: string;
 };
 
 export type PropertySettings = {
@@ -268,6 +264,23 @@ export type GuestResumen = {
   email: string;
 };
 
+/**
+ * Propiedad a la que pertenece una reservación, anidada por el backend
+ * (`PropertyResumenSerializer`): solo lo necesario para identificarla, no la
+ * ficha completa con precio y aforo.
+ *
+ * Es el contrato REAL de Django —la tabla `properties` ya existe y
+ * `Reservation.property` es una FK obligatoria—, no el directorio mock de
+ * lib/mock/marketplace-data.ts. El `slug` es el mismo string en ambos lados
+ * para Tenant 0 ("casa-brava"), que es justo lo que permite cruzarlos sin
+ * inventar un mapa de equivalencias.
+ */
+export type PropertyResumen = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 export type SpaBooking = {
   id: string;
   reservation: string;
@@ -318,6 +331,7 @@ export type WineOrder = {
 export type Reservation = {
   id: string;
   guest: GuestResumen;
+  /** Propiedad de la estadía. Obligatoria en el modelo: nunca llega vacía. */
   property: PropertyResumen;
   check_in: IsoDate;
   check_out: IsoDate;

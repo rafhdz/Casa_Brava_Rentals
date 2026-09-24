@@ -17,7 +17,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from pagos.models import PaymentStatus
-from pagos.services import registrar_pago
+from pagos.services import registrar_pago, sincronizar_estado_de_pago
 from propiedades.models import (
     FareType,
     Property,
@@ -542,7 +542,7 @@ class ExencionDePropietarioTests(BaseDominio):
 
     def test_la_estancia_de_un_propietario_nace_exenta(self):
         reservacion = self._reservar(self.propietario, 200)
-        self.assertEqual(reservacion.payment_status, PaymentStatus.NO_APLICA)
+        self.assertEqual(reservacion.payment_status, PaymentStatus.NA)
 
     def test_el_admin_puede_cobrarle_a_un_propietario_si_lo_indica(self):
         reservacion = self._reservar(
@@ -552,23 +552,33 @@ class ExencionDePropietarioTests(BaseDominio):
 
     def test_la_estancia_de_un_huesped_no_puede_ser_exenta(self):
         with self.assertRaises(services.ExencionInvalidaError):
-            self._reservar(self.huesped, 210, payment_status=PaymentStatus.NO_APLICA)
+            self._reservar(self.huesped, 210, payment_status=PaymentStatus.NA)
         self.assertFalse(Reservation.objects.filter(guest=self.huesped).exists())
 
     def test_no_se_puede_exentar_despues_a_un_huesped(self):
         reservacion = self._reservar(self.huesped, 215)
         with self.assertRaises(services.ExencionInvalidaError):
             services.actualizar_reservacion(
-                reservacion.pk, payment_status=PaymentStatus.NO_APLICA
+                reservacion.pk, payment_status=PaymentStatus.NA
             )
         reservacion.refresh_from_db()
         self.assertEqual(reservacion.payment_status, PaymentStatus.PENDIENTE)
 
-    def test_un_movimiento_no_revierte_la_exencion(self):
+    def test_resincronizar_sin_cobros_conserva_la_exencion(self):
+        """Sin movimientos, "nada cobrado" no se traduce a `pendiente` para
+        una estancia exenta (`derivar_estado_de_pago`)."""
         reservacion = self._reservar(self.propietario, 220)
+        sincronizar_estado_de_pago(reservacion.pk)
+        reservacion.refresh_from_db()
+        self.assertEqual(reservacion.payment_status, PaymentStatus.NA)
+
+    def test_un_cobro_real_vuelve_a_derivar_el_estado(self):
+        """Si de todos modos se le cobra algo, el estado se deriva de los
+        movimientos como en cualquier otra reservación."""
+        reservacion = self._reservar(self.propietario, 225)
         registrar_pago(reservacion=reservacion, amount=Decimal("100.00"))
         reservacion.refresh_from_db()
-        self.assertEqual(reservacion.payment_status, PaymentStatus.NO_APLICA)
+        self.assertEqual(reservacion.payment_status, PaymentStatus.PARCIAL)
 
 class ApiReservacionesTests(BaseDominio):
     """Contrato HTTP: autenticación, alcance por rol y códigos de error."""
@@ -771,7 +781,7 @@ class ApiReservacionesTests(BaseDominio):
                 "check_in": str(HOY + timedelta(days=140)),
                 "check_out": str(HOY + timedelta(days=142)),
                 "fare_type": str(self.tarifa.pk),
-                "payment_status": PaymentStatus.NO_APLICA,
+                "payment_status": PaymentStatus.NA,
             },
             format="json",
         )
@@ -825,7 +835,7 @@ class ApiReservacionesTests(BaseDominio):
             {
                 "reservation": str(reservacion.pk),
                 "amount": "100.00",
-                "status": PaymentStatus.NO_APLICA,
+                "status": PaymentStatus.NA,
             },
             format="json",
         )

@@ -30,7 +30,10 @@ from propiedades.models import (
     PropertySettings,
     SupplierProfile,
 )
+from pagos.models import PaymentStatus
 from proveedores.models import SpaMasseuse
+from reservaciones import services as reservation_services
+from reservaciones.models import Reservation, ReservationStatus
 from servicios.models import (
     FoodAvailability,
     FoodMenu,
@@ -301,6 +304,27 @@ class Command(BaseCommand):
         for email in ("maria.gomez@example.com", "carlos.ruiz@example.com"):
             PropertyAccessGrant.objects.get_or_create(
                 property=propiedad_casa_brava, user=Usuario.objects.get(email=email)
+            )
+
+        # Reservación de demostración para el propietario (holder): confirmada
+        # y exenta de cobro (`payment_status=NA`, no `pendiente`) — el mismo
+        # valor por defecto que asigna `crear_reservacion` cuando el huésped
+        # es `holder` (ver CLAUDE.md, reglas de negocio del rol `holder`).
+        # Idempotente: solo se crea si Carlos no tiene ya una reservación
+        # vigente en Casa Brava.
+        carlos = Usuario.objects.get(email="carlos.ruiz@example.com")
+        if not Reservation.objects.vigentes().filter(
+            guest=carlos, property=propiedad_casa_brava
+        ).exists():
+            tarifa_estandar = FareType.objects.get(name="Estándar")
+            reservation_services.crear_reservacion(
+                guest=carlos,
+                propiedad=propiedad_casa_brava,
+                check_in=hoy + timedelta(days=30),
+                check_out=hoy + timedelta(days=33),
+                fare_type=tarifa_estandar,
+                status=ReservationStatus.CONFIRMADA,
+                payment_status=PaymentStatus.NA,
             )
 
         menus = [

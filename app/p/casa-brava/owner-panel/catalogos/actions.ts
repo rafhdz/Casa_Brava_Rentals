@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { serverFetch, toActionError } from "@/lib/api/server";
-import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
+import { ownerPanelRoutes } from "@/lib/owner-panel";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type {
   FareType,
   FoodMenu,
@@ -31,6 +32,9 @@ import type {
 
 export type CatalogActionResult = { success: true } | { error: string };
 
+/** Ver la nota de `USERS_PATH` en ../actions.ts. */
+const CATALOGS_PATH = ownerPanelRoutes(TENANT_ZERO_SLUG).catalogos;
+
 // Endpoints de cada catálogo. Agrupados aquí para que la ruta de un catálogo
 // se escriba una sola vez y no se disperse entre sus tres acciones.
 const ENDPOINTS = {
@@ -55,7 +59,7 @@ async function escribirCatalogo(
   try {
     await serverFetch(path, options);
 
-    revalidatePath(ownerPanelRoutes().catalogs);
+    revalidatePath(CATALOGS_PATH);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, fallback) };

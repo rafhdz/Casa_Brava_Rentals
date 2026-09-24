@@ -23,12 +23,14 @@ El único flujo todavía simulado es el **procesamiento de pagos**: el botón de
 
 ## Arquitectura multi-tenant (Fase 4 — Parras Home Hub)
 
-El backend (Django) sigue siendo de **una sola propiedad**: no sabe nada de un marketplace, de otros anfitriones ni de códigos de invitación. Todo lo territorial (landing pública, directorio de propiedades, portal de anfitrión) es una capa **100% frontend y 100% mock**, construida para no bloquear el diseño del producto en el trabajo de backend multi-tenant que todavía no existe. Casa Brava se re-etiqueta como **"Tenant 0"**: la única propiedad respaldada por datos reales, servida bajo `/p/casa-brava/**`.
+El **directorio** territorial que ve el frontend (landing pública, tarjetas de propiedades, portal de anfitrión) es una capa **100% mock**, construida para no bloquear el diseño del producto en el trabajo multi-tenant del backend. Casa Brava es **"Tenant 0"**: la única propiedad respaldada por datos reales, servida bajo `/p/casa-brava/**`.
+
+> **Estado real del backend, que ya no es "una sola propiedad" del todo.** Django tiene desde hace poco las tablas del marketplace —`propiedades.Property` (con `slug` y `access_type`), `SupplierProfile` (proveedor, con su Stripe Connect y su comisión) y `PropertyAccessGrant` (invitación explícita a una propiedad `INVITE_ONLY`)—, `reservaciones.Reservation` tiene una FK **obligatoria** a `Property`, `usuarios.RoleType` renombró `admin`/`holder` a `SUPERADMIN`/`SUPPLIER` sobre los mismos valores de almacenamiento, y `/api/propiedades/` ya sirve el catálogo (lectura pública; el detalle expone `user_has_access`). Lo que **no** existe todavía: alta/edición de propiedades por API (solo el admin de Django), ningún endpoint que diga **de qué usuario** es cada proveedor ni qué invitaciones tiene cada cuenta, y ningún endpoint de datos filtrado por propiedad (usuarios, tarifas, catálogos y disponibilidad siguen siendo globales, de facto los de Casa Brava). Por eso el directorio del frontend sigue siendo mock y por eso el owner-panel sigue siendo de una sola propiedad: migrar el frontend a `/api/propiedades/` sin esos endpoints serviría datos de Casa Brava bajo el nombre de otra casa. Esta nota es el inventario de lo que falta, no una invitación a cablear el frontend contra lo que ya hay.
 
 ### La capa mock y su frontera con `lib/api/`
 
-- **[lib/types/marketplace.ts](lib/types/marketplace.ts)** — `Property`, `AccessType`, `AccessGrant`. Deliberadamente separados de los tipos de [lib/api/types.ts](lib/api/types.ts): unos describen lo que devuelve Django (Casa Brava), los otros el directorio mock.
-- **[lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts)** — `TENANT_ZERO_SLUG` (`"casa-brava"`), `PROPERTIES` (4: Casa Brava `INVITE_ONLY` + 3 ficticias `OPEN`), `ACCESS_GRANTS`, y los helpers `getPropertyBySlug`, `isInviteOnlyBySlug`, `validateInviteCode`. Es JS/TS puro, sin ningún import de Node ni de `next/headers` — lo importa `middleware.ts`, que corre en el Edge Runtime en cada navegación, así que un import roto ahí no es un error de tipos sutil, es un 500 en todas las rutas del sitio.
+- **[lib/types/marketplace.ts](lib/types/marketplace.ts)** — `Property` (con `coordinates`, `ratings` desglosadas, `verificationLevel`, `tags`, `amenityGroups` y `collections`), `AccessType`, `AccessGrant`, y los tipos auxiliares `GeoCoordinates`, `PropertyRatings`, `VerificationLevel`, `AmenityCategoryKey`/`PropertyAmenityGroup`/`AMENITY_CATEGORY_LABELS` y `CollectionKey`. Deliberadamente separados de los tipos de [lib/api/types.ts](lib/api/types.ts): unos describen lo que devuelve Django (Casa Brava), los otros el directorio mock. `AMENITY_CATEGORY_LABELS` es la única constante en tiempo de ejecución de este archivo (mismo patrón que `ESTADOS_ACTIVOS`/`MEAL_TYPES` en `lib/api/types.ts`); el mapeo categoría → ícono de `lucide-react` vive en `components/PropertyCard.tsx`, no aquí, para no importar `lucide-react` en un árbol de tipos que también resuelve `middleware.ts`.
+- **[lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts)** — `TENANT_ZERO_SLUG` (`"casa-brava"`), `PROPERTIES` (4: Casa Brava `INVITE_ONLY` + `hacienda-san-lorenzo`/`quinta-los-nogales`/`loft-santo-madero` `OPEN`, cada una con galería, coordenadas, calificación desglosada y amenidades categorizadas), `COLLECTIONS` (metadatos de las pestañas "Casonas Coloniales" / "Viñedos & Bodegas" / "Retiros de Media Semana / Nómadas Digitales" que filtra `components/PropertyDirectory.tsx`), `ACCESS_GRANTS` (código de demo vigente: `BRAVA2026`), y los helpers `getPropertyBySlug`, `isInviteOnlyBySlug`, `validateInviteCode`. Es JS/TS puro, sin ningún import de Node, de `next/headers` ni de `lucide-react` — lo importa `middleware.ts`, que corre en el Edge Runtime en cada navegación, así que un import roto ahí no es un error de tipos sutil, es un 500 en todas las rutas del sitio.
 - **Frontera dura, sin excepciones**: ningún código que atienda una propiedad mock (cualquier slug distinto de `TENANT_ZERO_SLUG`) puede llamar a `checkoutStay`, `checkoutCartServices`, `serverFetch(All)` ni `getActiveReservation`. Esos asumen un backend real con IDs (tarifas, masajistas, menús, vinos) que las propiedades mock no tienen — usarlos con un slug/id inventado produciría un 404/400 real contra Django o, peor, crearía una reservación real a nombre de una propiedad que no existe ahí. Cada archivo bajo `app/p/[slug]/` bifurca explícitamente con `if (slug === TENANT_ZERO_SLUG)` para mantener esta frontera visible en el propio código, no solo en este documento.
 - **Código de invitación ≠ login.** `AccessGrant`/`validateInviteCode` solo *encuentran* una propiedad `INVITE_ONLY` para navegar a `/p/<slug>` — no crean sesión. Si esa propiedad exige sesión (ver guards de ruta), `middleware.ts` la sigue exigiendo después del canje. No es una vía paralela de autenticación.
 
@@ -43,6 +45,8 @@ PHH (directorio público, sin sesión) y Casa Brava (app de huésped y de gesti�
 
 `app/layout.tsx` no cambió: sigue montando un solo `<Navbar/>`/`<Footer/>`. **No mover esta lógica a `layout.tsx` ni a un route group** — es la decisión de arquitectura, no un paso intermedio a "terminar" después.
 
+**El botón de cuenta apunta siempre a `/perfil`, en los dos navs.** `MarketplaceNavbar` ("Mi cuenta", escritorio y menú móvil) y `TenantNavbar` (el ícono de usuario) llevan al mismo lugar: la pantalla donde están los datos de la sesión y el botón de cerrar sesión. `MarketplaceNavbar` apuntaba antes a `` `/p/${TENANT_ZERO_SLUG}` ``, y eso era un error de flujo, no un atajo: mandaba a un visitante de PHH a la fachada de una propiedad **por invitación** con la que su cuenta puede no tener ninguna relación, y a quien sí la tenía lo dejaba sin ninguna vía visible para cerrar sesión desde el marketplace. Regla: **ningún control de "cuenta"/"perfil"/avatar puede apuntar a `/p/<slug>`** — reservar y administrar la sesión son dos cosas distintas.
+
 ### Gestión de logos e identidad visual
 
 Dos marcas, dos archivos en `public/icons/system/`: **`PHH_logo.svg`** (Parras Home Hub, el marketplace) y **`CBR_logo.svg`** (Casa Brava Rentals, Tenant 0). El antiguo `logo.svg` genérico ya no existe — se reemplazó por estos dos, sin ambigüedad sobre cuál es cuál.
@@ -50,7 +54,7 @@ Dos marcas, dos archivos en `public/icons/system/`: **`PHH_logo.svg`** (Parras H
 Regla de visualización, sin excepciones:
 
 - **`CBR_logo.svg`** es exclusivo de `/p/casa-brava/**` — la fachada, `reservar`, `servicios/*`, `checkout` **y** su panel de gestión (`/p/casa-brava/owner-panel/**`).
-- **`PHH_logo.svg`** es para todo lo demás: la landing (`/`), `/sobre-nosotros`, `/conoce-parras`, `/supplier`, `/login`, `/register`, el panel universal `/admin`, y también `/p/<slug>` de cualquier propiedad `OPEN` que **no** sea Casa Brava (`villa-del-vinedo`, `casa-de-la-sierra`, `loft-boutique-centro`).
+- **`PHH_logo.svg`** es para todo lo demás: la landing (`/`), `/sobre-nosotros`, `/conoce-parras`, `/supplier`, `/login`, `/register`, el panel universal `/admin`, y también `/p/<slug>` de cualquier propiedad `OPEN` que **no** sea Casa Brava (`hacienda-san-lorenzo`, `quinta-los-nogales`, `loft-santo-madero`).
 
 `MarketplaceNavbar.tsx` es de un solo público (PHH), así que siempre pinta `PHH_logo.svg` sin condicional. `TenantNavbar.tsx` sí necesita decidir en tiempo de render, porque también monta en `/p/<slug>` de las tres propiedades `OPEN` mock (ver "Arquitectura multi-tenant"): calcula `isCasaBravaScope = pathname.startsWith(\`/p/${TENANT_ZERO_SLUG}\`)` y alterna entre `CBR_logo.svg` (con el logo enlazando a `/p/${TENANT_ZERO_SLUG}`) y `PHH_logo.svg` (enlazando a `/`) según ese cálculo — nunca hardcodear el string `"casa-brava"` para esta comparación, usar siempre `TENANT_ZERO_SLUG`. `MarketplaceFooter.tsx`/`TenantFooter.tsx` no muestran ningún logo (solo texto), así que no necesitan este condicional.
 
@@ -62,20 +66,78 @@ Cada página bajo `app/p/[slug]/` bifurca por slug:
 - **Cualquier otro slug** (las 3 propiedades `OPEN`) → una versión mock sin ningún fetch al backend: `MockReservarForm` para fechas/huéspedes/resumen, y `ServiceAccessNotice` (reutilizado, sin cambios) para spa/comida/vinos con copy "próximamente" — no se construyó un catálogo mock completo porque eso se leería como funcionalidad real rota.
 - **`/p/[slug]/checkout`** es **aditivo**, no reemplaza el flujo real: para Casa Brava, `ReservarForm`/`CartView` siguen llamando a `checkoutStay`/`checkoutCartServices` y redirigiendo a `/pago-exitoso` exactamente como antes de la Fase 4 — cero riesgo de doble escritura. La ruta `/p/casa-brava/checkout` es una pantalla de **solo lectura** (lee `getActiveReservation()`, muestra `gran_total` ya calculado por el backend) para quien navegue ahí directamente. Para las propiedades `OPEN` es la única pantalla de "pago": recalcula el total con `basePricePerNight` mock a partir de la query string que le pasó `MockReservarForm`, y el botón "Confirmar" solo redirige a `/pago-exitoso` — nunca escribe nada.
 
+### Landing pública (`app/page.tsx`) y directorio editorial
+
+Landing de PHH con formato de revista arquitectónica: hero editorial (titular +
+micro-widget de clima/vendimia, ambos calculados a partir del mes actual del
+servidor — no hay integración con una API de clima real, el copy dice
+"típico de temporada" a propósito), el directorio de propiedades, la
+comparativa de comisiones y dos secciones de contenido puramente editorial
+(experiencias locales, protocolo de reputación). Todo sigue siendo Server
+Component estático: ningún `fetch`, toda la data sale de `PROPERTIES`.
+
+- **[components/PropertyDirectory.tsx](components/PropertyDirectory.tsx)** —
+  además del filtro por capacidad de huéspedes, aloja las pestañas de
+  "Curated Collections" (`COLLECTIONS` en `lib/mock/marketplace-data.ts`):
+  filtra `properties` por `Property.collections` antes de pasarlas a
+  `PropertyCard`. Es el único componente que decide qué tarjetas se muestran,
+  a propósito — evita que el filtro por huéspedes y el filtro por colección
+  vivan en dos sitios distintos.
+- **[components/PropertyCard.tsx](components/PropertyCard.tsx)** — carrusel de
+  fotos que auto-avanza mientras el mouse está encima (`onMouseEnter`
+  arranca un `setInterval`, `onMouseLeave` lo limpia y reinicia el índice);
+  badge de acceso (gris neutro para `OPEN`, negro con acento dorado para
+  `INVITE_ONLY`); calificación, hasta 3 categorías de amenidades y el badge de
+  verificación, todo leído de `Property`. El mapeo `AmenityCategoryKey` →
+  ícono de `lucide-react` vive aquí (`AMENITY_ICONS`), no en
+  `lib/mock/marketplace-data.ts` ni en `lib/types/marketplace.ts` (ver la
+  frontera del Edge Runtime más arriba).
+- **[components/MarketplaceSearchBar.tsx](components/MarketplaceSearchBar.tsx)**
+  — el panel de "¿Tienes una invitación?" ya no delega a un componente
+  `InviteCodeForm` (se eliminó: quedó sin otro consumidor tras este rediseño).
+  Valida el código en vivo contra `validateInviteCode()` al enviarse y
+  muestra un badge esmeralda "Acceso Concedido — Residencia Privada" con
+  acceso directo a `/p/<slug>`, o un error inline si no coincide — nunca
+  navega ni recarga por sí solo. El calendario de fechas resalta fines de
+  semana con `modifiers={{ weekend: isWeekend }}` de `date-fns` (un
+  pseudo-elemento `after:`, no un cambio de fondo/texto, para no competir con
+  `selected`/`range_*` — mismo patrón que `AVAILABILITY_MODIFIERS_CLASS_NAMES`
+  en `Calendar.tsx`).
+- **[components/CommissionComparison.tsx](components/CommissionComparison.tsx)**
+  — módulo interactivo del Business Plan de PHH. Las tasas de Airbnb
+  (split-fee ~3% anfitrión + ~16% huésped, host-only ~16% anfitrión) y de PHH
+  (10% fijo, siempre al anfitrión) son constantes locales, ilustrativas del
+  modelo de negocio del marketplace — no hay ningún endpoint de comisiones en
+  Django. El slider solo recalcula aritmética de cliente (`amount * (1 -
+  hostFeePercent/100)`, etc.); no toca `lib/api/` ni las reglas de negocio
+  reales de Casa Brava.
+
 ### `/supplier`: portal de anfitrión sin mutaciones (y sin botones muertos)
 
 `app/supplier/page.tsx` (Server Component) lista `PROPERTIES` como "Mis propiedades" y respeta la frontera de arriba fila por fila. **Ningún botón dispara un toast de "próximamente"**: cada fila ofrece una acción real o no ofrece ninguna.
 
-- **Casa Brava (Tenant 0)** — la página verifica el canal **en vivo** con `checkTenantZeroChannel()`: pide `/api/propiedades/` (endpoint público, `AllowAny`) y busca `TENANT_ZERO_SLUG`. De ahí salen el badge "En línea · Conectado a Django" (o "Sin conexión con Django" si no respondió — nunca se inventa), la tarifa base real (`toNumber(base_price_per_night)`) y la latencia medida. La acción es un enlace a su panel de gestión (`ownerPanelRoutes().root`). `/supplier` no exige sesión, así que aquí **solo** se leen datos públicos: la ocupación y las reservaciones reales de Casa Brava viven tras el guard de rol del owner-panel y no se estiman en este portal.
+- **Casa Brava (Tenant 0)** — la página verifica el canal **en vivo** con `checkTenantZeroChannel()`: pide `/api/propiedades/` (endpoint público, `AllowAny`) y busca `TENANT_ZERO_SLUG`. De ahí salen el badge "En línea · Conectado a Django" (o "Sin conexión con Django" si no respondió — nunca se inventa), la tarifa base real (`toNumber(base_price_per_night)`) y la latencia medida. La acción es un enlace a su panel de gestión (`ownerPanelRoutes(TENANT_ZERO_SLUG).root`). `/supplier` no exige sesión, así que aquí **solo** se leen datos públicos: la ocupación y las reservaciones reales de Casa Brava viven tras el guard de rol del owner-panel y no se estiman en este portal.
 - **Propiedades mock (`OPEN`)** — la acción "Simular tarifas" abre `components/RevenueSimulatorDrawer.tsx`, un simulador de Revenue Management: `Tarifa dinámica = base × M_temporada × M_día × M_ocupación × M_evento`, acotada entre ×0.70 y ×1.80, con proyección anual de ocupación (columnas por mes sobre un calendario tipo de Parras), ADR, RevPAR, y el ahorro acumulado de la comisión PHH (10 %) frente a Airbnb (16 %). Calcula en el cliente y **no escribe nada**.
 - **El motor es `lib/revenue-simulator.ts`** — funciones puras, dinero en centavos. Lo usan la página (métricas de cabecera) y el drawer (recalculo en vivo), así que nunca discrepan. Multiplicadores, calendario y factores de demanda son **supuestos del plan de negocio declarados ahí**, no contenido de Casa Brava: no es una excepción a "No hardcodear precios" (esos siguen viniendo de Django). Las tasas de comisión viven en `lib/commission-rates.ts`, compartidas con `/admin`.
 - **Métricas de cabecera** (`components/KpiCard.tsx`), todas calculadas: *Ocupación promedio proyectada* y *RevPAR estimado* (proyección del motor sobre las propiedades simuladas, ponderada por noches disponibles — Casa Brava queda fuera porque su ocupación es real y privada) e *Índice de respuesta operativa* (propiedades con canal en línea ÷ total del portafolio, con la latencia de Django como detalle).
 
 Sigue sin existir un rol "anfitrión" con propiedades propias en el backend (`usuarios.role` solo conoce `admin`/`holder`/`guest`), ni Stripe Connect real: por eso el portal no persiste nada. Construir un CRUD contra `localStorage` inventaría un modelo de datos que se tiraría en cuanto el backend soporte multi-tenant — exactamente lo que prohíbe "No reintroducir una capa de datos en el frontend" más abajo.
 
+**La única acción real de esa tabla es navegar al panel de gestión.** Cada fila trae un botón "Panel de gestión" que, **solo para Tenant 0**, es un `<Link>` a `` ownerPanelRoutes(TENANT_ZERO_SLUG).root `` (`/p/casa-brava/owner-panel`); antes de esto, la única forma de llegar ahí era escribir la URL a mano. Para las tres propiedades mock el mismo botón se pinta deshabilitado (borde punteado, `title="Próximamente disponible"`) y dispara el toast de "disponible próximamente", igual que "Tarifas" y "Calendario".
+
+No cruza la frontera mock/real y no la debilita: es **navegación**, no escritura, y ninguna propiedad mock recibe un enlace a un panel que no existe. El guard de rol del owner-panel sigue aplicando igual que siempre (`/supplier` es pública; quien pulse ese botón sin rol `holder`/`admin` termina en `/login` o de vuelta en `/p/casa-brava`, según tenga sesión o no) — el enlace es un atajo de navegación, nunca una vía de acceso. Cuando exista el panel genérico por propiedad, la bifurcación se borra y las cuatro filas usan `ownerPanelRoutes(property.slug)`.
+
+### Identidad de `/login` y `/register`: la cuenta es de PHH, no de una casa
+
+Las dos pantallas son la **puerta de entrada compartida por todo el sitio** (por eso viven del lado de `MarketplaceNavbar`/`MarketplaceFooter` y pintan `PHH_logo.svg`, ver "Gestión de logos e identidad visual"), así que su copy habla de **Parras Home Hub** y no de Casa Brava: "Bienvenido a Parras Home Hub" / "Regístrate en Parras Home Hub", con un subtítulo que explica que una sola cuenta abre tanto el directorio público como las estancias exclusivas por invitación. Casa Brava se menciona, si acaso, como **ejemplo** de estas últimas — nunca como la marca de la pantalla.
+
+No confundir con el destino post-login, que no cambió: un huésped sigue aterrizando en `` `/p/${TENANT_ZERO_SLUG}` `` y un admin en `/admin` (ver "Redirects que cambiaron de destino"). La cuenta es del marketplace; el aterrizaje es de la única propiedad que hoy tiene backend real.
+
+**"¿Olvidaste tu contraseña?"** vive en `/login`, debajo del campo de contraseña y alineado a la derecha. **No hay endpoint de reseteo por correo en el backend** (no existe `/api/auth/password-reset/` ni configuración de envío de correo), así que el botón abre un modal accesible (`role="dialog"`, `aria-modal`, `aria-labelledby`/`aria-describedby`, cierre con Escape o clic fuera — mismo patrón que los modales del owner-panel) con la vía real: contactar al soporte de la plataforma o pedirle la reactivación al anfitrión. Es deliberadamente un aviso y no un formulario: un campo de correo que "envía" un enlace que nunca llega sería peor que no tener la función. Cuando el backend exponga el endpoint, ese modal se reemplaza por el formulario real y nada más de la pantalla cambia.
+
 ### Redirects que cambiaron de destino
 
-`/` dejó de ser el "home" de un huésped autenticado — ahora es la landing pública de PHH. Cualquier lugar que antes mandaba a un huésped a `/` después de autenticarse ahora manda a `` `/p/${TENANT_ZERO_SLUG}` ``: el redirect post-login de huésped en `app/login/page.tsx`, el redirect post-registro en `app/register/page.tsx`, el logo de `TenantNavbar`, y los dos `href` hardcodeados de `CartView.tsx` ("Reservar estadía", "Explorar servicios"). `TENANT_ZERO_SLUG` se importa siempre desde `lib/mock/marketplace-data.ts` — no repetir el string `"casa-brava"` a mano en código nuevo. Las rutas del panel de gestión salen de **`ownerPanelRoutes(slug = TENANT_ZERO_SLUG)`** ([lib/owner-panel-routes.ts](lib/owner-panel-routes.ts)) — `{ root, reservations, catalogs }` —, la única fuente que usan `middleware.ts`, `OwnerNav.tsx`, `/supplier` y los `revalidatePath` de las Server Actions. Es TS puro (lo importa el Edge Runtime) y vive fuera de los archivos `"use server"`, que solo pueden exportar funciones `async`.
+`/` dejó de ser el "home" de un huésped autenticado — ahora es la landing pública de PHH. Cualquier lugar que antes mandaba a un huésped a `/` después de autenticarse ahora manda a `` `/p/${TENANT_ZERO_SLUG}` ``: el redirect post-login de huésped en `app/login/page.tsx`, el redirect post-registro en `app/register/page.tsx`, el logo de `TenantNavbar`, y los dos `href` hardcodeados de `CartView.tsx` ("Reservar estadía", "Explorar servicios"). `TENANT_ZERO_SLUG` se importa siempre desde `lib/mock/marketplace-data.ts` — no repetir el string `"casa-brava"` a mano en código nuevo. Las rutas del panel de gestión salen de **`ownerPanelRoutes(slug)`** ([lib/owner-panel.ts](lib/owner-panel.ts)) — `{ root, reservations, catalogos }` —, la única fuente que usan `middleware.ts`, `OwnerNav.tsx`, `TenantNavbar.tsx`, `/supplier` y los `revalidatePath` de las Server Actions (ver "Preparado para un panel por propiedad").
 
 ---
 
@@ -143,6 +205,8 @@ Abrir <http://localhost:3000>.
 | `admin@test.com` | `admin` | Panel de Control PHH (`/admin`) y panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) |
 | `carlos.ruiz@example.com` | `holder` | Experiencia de huésped (lectura ampliada en la API) |
 | `maria.gomez@example.com` | `guest` | Experiencia de huésped |
+
+`seed_demo` también da de alta una reservación de demostración para `carlos.ruiz@example.com` en Casa Brava (`status=confirmada`, `payment_status=na`), para que el panel de reservaciones muestre desde el primer arranque el caso de un propietario con estadía exenta de cobro. La crea con `reservaciones.services.crear_reservacion` (no un `Reservation.objects.create()` directo) para que pase por las mismas reglas de negocio que cualquier alta real, e idempotente: solo si Carlos no tiene ya una reservación vigente en esa propiedad.
 
 ### Comandos útiles
 
@@ -261,7 +325,7 @@ Consecuencia de diseño: **ningún Client Component habla con Django directament
   2. Confirmación contra la API (`GET /api/usuarios/me/`), **solo si el claim ya dice `admin`**.
 
   El segundo paso no es redundante. El middleware **no verifica firmas**, así que cualquiera puede fabricar un token que declare `role: "admin"`. Ese token no sirve para nada contra Django (toda petición devuelve 401), pero sin la confirmación sí alcanzaría para *entrar* a `/admin` y ver la cáscara de la página. Es *fail closed*: rol distinto de `admin`, token ilegible o API que no responde ⇒ fuera de `/admin`, hacia `/`.
-- **`/p/casa-brava/owner-panel/**` — el panel de gestión de Casa Brava** (prefijo `ownerPanelRoutes().root`) — requiere sesión **y** rol `holder` **o** `admin`, con el mismo patrón de doble verificación (claim rápido + confirmación contra `/api/usuarios/me/` cuando el claim ya declara uno de los dos roles permitidos). No es el mismo guard que `/admin`: ambos comparten el helper `confirmarRol(access, allowedRoles)` en `middleware.ts`, mismo mecanismo, distinta lista de roles permitidos y distinto destino cuando falla — un huésped con sesión que lo intenta vuelve a `/p/${TENANT_ZERO_SLUG}` (la fachada de la propiedad a la que ya sabemos que tiene invitación), no a `/`. El requisito de sesión de esta ruta ya viene cubierto además por el guard `INVITE_ONLY` de arriba (Casa Brava es `INVITE_ONLY`), pero el guard por rol no depende de eso en silencio: seguiría exigiendo sesión aunque esa propiedad dejara de serlo.
+- **`/p/casa-brava/owner-panel/**` — el panel de gestión de Casa Brava** (prefijo `ownerPanelBasePath(TENANT_ZERO_SLUG)`) — requiere sesión **y** rol `holder` **o** `admin`, con el mismo patrón de doble verificación (claim rápido + confirmación contra `/api/usuarios/me/` cuando el claim ya declara uno de los dos roles permitidos). No es el mismo guard que `/admin`: ambos comparten el helper `confirmarRol(access, allowedRoles)` en `middleware.ts`, mismo mecanismo, distinta lista de roles permitidos y distinto destino cuando falla — un huésped con sesión que lo intenta vuelve a `/p/${TENANT_ZERO_SLUG}` (la fachada de la propiedad a la que ya sabemos que tiene invitación), no a `/`. El requisito de sesión de esta ruta ya viene cubierto además por el guard `INVITE_ONLY` de arriba (Casa Brava es `INVITE_ONLY`), pero el guard por rol no depende de eso en silencio: seguiría exigiendo sesión aunque esa propiedad dejara de serlo.
 - `/login` y `/register` no están en ninguna lista y deben seguir siendo 100% accesibles sin sesión: son la válvula de escape que evita el bucle.
 
 > **Nota sobre el nombre del archivo:** Next.js 16 renombró esta convención a `proxy.ts` (función exportada como `proxy`), pero sigue reconociendo `middleware.ts` vía compatibilidad hacia atrás. Si se retira ese soporte, renombrar el archivo y la función es el único cambio necesario (hay codemod oficial: `npx @next/codemod@canary middleware-to-proxy .`).
@@ -272,6 +336,7 @@ Consecuencia de diseño: **ningún Client Component habla con Django directament
 
 [app/register/page.tsx](app/register/page.tsx) valida en el cliente (nombre y apellido paterno obligatorios, apellido materno opcional, correo con formato, contraseña de mínimo 8 caracteres que coincida con su confirmación) y llama a `registerAction`.
 
+- **La cuenta es de Parras Home Hub, no de Casa Brava** — ver "Identidad de `/login` y `/register`" más arriba para el copy y el porqué.
 - La cuenta **siempre** se crea con rol `guest`. Crear `admin`/`holder` es exclusivo del CRUD de usuarios del panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) — el Panel de Control PHH (`/admin`) es de solo lectura, ver más abajo.
 - El teléfono **sí se persiste** (`phone` en el perfil), a diferencia de iteraciones anteriores donde el campo era decorativo.
 - Los mensajes de error (correo duplicado, contraseña demasiado común o corta) los redacta el backend y llegan ya en español: aquí no hay tabla de traducción.
@@ -296,9 +361,8 @@ usuarios (`/p/casa-brava/owner-panel`), reservaciones
 > es el encabezado, ahora "Casa Brava — Panel de gestión", y el renombre de
 > `AdminNav.tsx` a `components/OwnerNav.tsx`. No repetir el string
 > `"casa-brava"` a mano en el código de este panel — usar siempre
-> `TENANT_ZERO_SLUG`, y para las rutas `ownerPanelRoutes()` (ver
-> `components/OwnerNav.tsx`, `middleware.ts` y los `revalidatePath` de las
-> tres `actions.ts` del panel).
+> `TENANT_ZERO_SLUG`, y para las rutas `ownerPanelRoutes()` de
+> `lib/owner-panel.ts` (ver "Preparado para un panel por propiedad").
 
 **Navegación** — [components/OwnerNav.tsx](components/OwnerNav.tsx) es la
 barra secundaria que las enlaza entre sí, y las tres páginas la montan arriba
@@ -309,13 +373,52 @@ panel se compara por **igualdad** y las otras dos por prefijo: con
 `.../reservations` y se marcarían dos activas a la vez (misma distinción
 exacta/prefijo que hace `middleware.ts` con `/`).
 
+### Preparado para un panel por propiedad (sin cambiar de ruta hoy)
+
+El panel sigue viviendo en la carpeta **estática** `app/p/casa-brava/owner-panel/`
+y sigue siendo el de una sola propiedad. Lo que cambió es que **ningún archivo
+construye ya esas rutas a mano**: todas salen de
+[lib/owner-panel.ts](lib/owner-panel.ts), que expone `OWNER_PANEL_SEGMENT`,
+`ownerPanelBasePath(slug)` y `ownerPanelRoutes(slug)` (`{ root, reservations,
+catalogos }`).
+
+- **Módulo puro, obligatoriamente.** Lo importa `middleware.ts`, que corre en
+  el Edge Runtime en cada navegación: nada de `next/headers`, de
+  `lib/api/server.ts` ni de imports de Node ahí dentro — misma regla que
+  `lib/mock/marketplace-data.ts`.
+- **`OwnerNav` recibe `propertySlug`** (con `TENANT_ZERO_SLUG` por defecto) y
+  arma sus tres pestañas con `ownerPanelRoutes(propertySlug)`. Ya no sabe nada
+  de Casa Brava. El default existe para que un montaje futuro sin prop caiga en
+  el panel que sí existe, no para invitar a omitirlo: las tres páginas lo pasan
+  explícito.
+- **Cada página declara `const PROPERTY_SLUG = TENANT_ZERO_SLUG` una sola vez**
+  y de ahí salen la nav y el encabezado (`getPropertyName(PROPERTY_SLUG)`, nuevo
+  helper de `lib/mock/marketplace-data.ts`, que cae al propio slug si la
+  propiedad no está en el directorio). El literal "Casa Brava" ya no está
+  escrito en el JSX de ninguna de las tres.
+- **Los `revalidatePath` también**: `ownerPanelRoutes(TENANT_ZERO_SLUG)` en los
+  tres `actions.ts` del panel y en `app/actions/checkout.ts`, en vez de ocho
+  strings repetidos que podían desincronizarse de la ruta real.
+- **Qué falta para el panel genérico** (y por qué no se hizo ahora): mover estas
+  páginas a `app/p/[slug]/owner-panel/` y leer `params.slug` en vez de la
+  constante. No se hizo porque el contenido del panel —usuarios, reservaciones,
+  catálogos— sigue apuntando a endpoints de **una sola casa**
+  (`/api/usuarios/`, `/api/propiedades/configuracion/`…, ninguno filtra por
+  propiedad), así que un `[slug]` genérico hoy serviría los datos de Casa Brava
+  bajo el nombre de otra propiedad: peor que no tener la ruta. Con la ruta
+  dinámica haría falta además un guard de "¿es esta persona el proveedor de
+  ESTA propiedad?", que el backend tampoco expone todavía. La preparación
+  hecha aquí es la mitad que sí se puede hacer sin inventar datos.
+
 ### CRUD de usuarios (`/p/casa-brava/owner-panel`)
 
 - **[app/p/casa-brava/owner-panel/page.tsx](app/p/casa-brava/owner-panel/page.tsx)** — Server Component `async`: pide la lista de perfiles y la sesión activa en paralelo, y se los pasa a `UsersTable` como `users`/`currentUserId`.
-- **[app/p/casa-brava/owner-panel/actions.ts](app/p/casa-brava/owner-panel/actions.ts)** — `createUser`, `updateUser`, `deleteUser`. Las tres devuelven `{ success: true } | { error: string }` (nunca lanzan hacia el caller) y llaman a `revalidatePath(ownerPanelRoutes().root)` al terminar con éxito.
+- **[app/p/casa-brava/owner-panel/actions.ts](app/p/casa-brava/owner-panel/actions.ts)** — `createUser`, `updateUser`, `deleteUser`. Las tres devuelven `{ success: true } | { error: string }` (nunca lanzan hacia el caller) y llaman a `revalidatePath(ownerPanelRoutes(TENANT_ZERO_SLUG).root)` al terminar con éxito.
 - **[components/UsersTable.tsx](components/UsersTable.tsx)** — no espeja la prop `users` en estado local: la renderiza tal cual, y el refresco tras una acción llega por el `revalidatePath`. Tres modales (crear / editar / eliminar), cada uno con su propio `useTransition`; los errores se muestran con `toast.error(...)`, no con un párrafo en línea.
 
 **Guards que ya no vive el frontend.** El backend rechaza que un admin cambie su propio rol o estado, y que borre su propia cuenta —el camino más corto para dejar el panel sin acceso—. La UI deshabilita esos controles en la propia fila del admin, pero **el límite real es la API**: la UI es una ayuda, no la protección.
+
+**Un `holder` siempre queda `is_active=True`.** `UsuarioManager.create_user` (backend) lo fuerza explícitamente cuando `role == HOLDER`, sin importar qué reciba — no es un `setdefault`, sobreescribe. Es una salvaguarda defensiva más que una necesidad hoy: `is_active` ya es de solo lectura en `UsuarioSerializer` (nunca se expone en el payload de edición) y no forma parte de los campos de `UsuarioCreateSerializer`, así que ningún camino de la API puede desactivar una cuenta hoy. Existe para que, si algún día se agrega esa capacidad, un propietario nunca quede bloqueado fuera de su propio panel de gestión (`/p/casa-brava/owner-panel`) por accidente.
 
 > ⚠️ **Contraseña temporal fija.** `createUser` asigna `DEFAULT_TEMP_PASSWORD` (`"changeme123"`) a toda cuenta creada desde este panel. Es la misma para *todas* las cuentas y cualquiera con acceso al código la conoce. Aceptable solo mientras el proyecto siga siendo un sistema de acceso invitado con un puñado de usuarios de confianza, donde el admin comparte la contraseña directamente. **Antes de cualquier despliegue real** hay que reemplazarla por: (a) forzar el cambio en el primer login, (b) generar una aleatoria por usuario y comunicarla fuera de banda, o (c) un flujo de invitación por correo donde la persona elija la suya. El copy del modal ya le avisa al admin cuál es la contraseña, para que sepa qué comunicar.
 
@@ -324,7 +427,13 @@ exacta/prefijo que hace `middleware.ts` con `/`).
 Ruta propia, enlazada desde la raíz del panel con la pestaña "Reservaciones".
 
 - **Dos estados independientes**: `status` (`pendiente` | `confirmada` | `cancelada` | `finalizada`) describe el ciclo de vida operativo; `payment_status` (`pendiente` | `parcial` | `completado` | `reembolsado` | `na`) describe el cobro. Están separados —no uno derivado del otro— para poder representar un anticipo sobre una reserva todavía `pendiente` sin acoplar ambos ciclos. El modal los expone como dos `<select>` independientes.
-- **Estancias exentas (`payment_status = "na"`, "No aplica")**: la estancia de un propietario (`holder`) en su propia casa no se cobra y no suma al GMV de `/admin`. En `CreateReservationModal`, elegir un huésped `holder` **sugiere** `"na"` como valor derivado en cada render (`manualPaymentStatus ?? sugerencia`, el mismo patrón que el monto): sin `useEffect` que sincronice el select, así que no hay `setState` en un efecto (`react-hooks/set-state-in-effect`) ni renders en cadena. Cambiar de huésped descarta la elección manual en el propio handler del `<select>`. La opción "No aplica" solo se ofrece para un `holder` (en edición, también si la reservación ya viene exenta). **La regla vive en el backend**: rechaza `"na"` para cualquier otro huésped con un 400, y la crea exenta por defecto si el huésped es `holder` (ver `backend/README.md` §5, regla 6). El rol se cruza con la lista de usuarios que ya baja la página (`GuestOption.role`), sin otra petición.
+- **`payment_status = na`** ("No aplica / Exento") es el valor que recibe por defecto la estadía de un **propietario** (rol `holder`): no paga la renta de su propia propiedad, así que su reservación no debe nacer en `pendiente` como si fuera un huésped esperando pagar.
+  - El default lo asigna el backend, no el frontend: `reservaciones.services.crear_reservacion` revisa el rol del **huésped a cuyo nombre se crea la reservación** (no de quien hace la petición) y, si es `holder` y el payload no manda `payment_status` explícito, lo fija en `na`. Esto cubre los dos caminos por igual: un propietario que reserva su propia estadía desde `/p/casa-brava/reservar` (`app/actions/checkout.ts` → `checkoutStay`, que nunca manda `payment_status`), y un admin que lo da de alta manualmente por él desde este panel.
+  - **Solo para `holder`, y el backend lo hace cumplir.** `reservaciones.services._validar_exencion` rechaza `na` —al crear y al editar— para cualquier huésped que no sea `holder` (400 con `{"detail"}`): sin ese guard, cualquier reservación se podría sacar del GMV de `/admin` con solo mandar ese valor. Un `Payment` individual tampoco puede llevarlo (`PaymentSerializer.validate_status`): `na` describe a la reservación, no a un movimiento.
+  - El modal de creación (`CreateReservationModal`) replica el mismo default del lado del cliente, para que el admin vea el valor correcto antes de guardar: al elegir en "Huésped" una cuenta con `role === "holder"`, el `<select>` de "Pago" muestra "No aplica (exento)". Es un **valor derivado en cada render** (`manualPaymentStatus ?? sugerencia`, el mismo patrón que `manualTotalAmount`): sin `useEffect` que sincronice el select, así que no hay `setState` en un efecto (`react-hooks/set-state-in-effect`) ni renders en cadena. Tocar el select congela la elección; **cambiar de huésped la descarta** en el propio handler del `<select>` de huésped, para que vuelva a regir la sugerencia del nuevo huésped. La opción "No aplica" solo se ofrece si el huésped es `holder` (en edición, también si la reservación ya viene exenta), así que la UI no invita al 400 del backend. `GuestOption` (en `reservations/actions.ts`) incluye `role` justo para esto, y `EditReservationModal` cruza el rol con esa misma lista, sin otra petición.
+  - `pagos.services.derivar_estado_de_pago` respeta `na`: si la reservación está en `na` y no tiene ningún movimiento de cobro registrado, la falta de movimientos no se traduce a `pendiente` como en el resto de los casos. En cuanto se le registra un pago real (`registrar_pago`), vuelve a derivarse con la lógica normal (`parcial`/`completado`/`reembolsado`) a partir de ahí — `na` no bloquea que a un propietario se le cobre algo si hiciera falta, solo evita que aparezca como "pendiente" sin razón.
+  - El solapamiento de fechas (`hay_solapamiento`) no necesitó ningún cambio: ya filtra por `status` (`activas()` = `pendiente`/`confirmada`), no por `payment_status`, así que una reservación `na` con estado activo ya ocupaba el calendario normalmente antes de este cambio.
+  - Badge visual neutro en la tabla (`PAYMENT_STATUS_CLASSES.na`): `border border-neutral-300 bg-neutral-100 text-neutral-700` — a propósito distinto de los colores de los otros cuatro estados, para que se lea como "no aplica" y no como una variante de "pendiente".
 - **Solo reservaciones de esta propiedad**: `getReservations()` pide `?property=<TENANT_ZERO_SLUG>` (para un admin/holder la API devuelve las de todas las propiedades) y además filtra por `reservation.property.slug` como defensa en profundidad. `createReservation` manda `property_slug` explícito en vez de depender del fallback a Tenant 0 del backend.
 - **Una sola petición trae todo**: el backend resuelve los JOIN (huésped, tarifa, spa/comida/vinos con su catálogo) y expone además `subtotal_servicios` y `gran_total` ya calculados.
 - **Desglose de servicios contratados** (dentro de `EditReservationModal`): sección de solo lectura que lista cada línea con su monto. `buildServiceLines()` aplana los tres tipos de servicio a una lista de `{ key, label, amount }`. **No recalcula ningún precio contra el catálogo actual**: usa los montos guardados en cada booking, que son un *snapshot* del precio al momento de contratar (la única multiplicación, precio unitario × cantidad de una línea de vinos, se hace en centavos). Para los totales muestra el `subtotal_servicios` y el `gran_total` **que devuelve el backend**, en vez de volver a sumarlos aquí, para que el panel y la API nunca puedan discrepar.
@@ -339,7 +448,7 @@ Cuatro catálogos que antes solo se editaban desde el admin de Django: **tipos d
 
 - **[app/p/casa-brava/owner-panel/catalogos/page.tsx](app/p/casa-brava/owner-panel/catalogos/page.tsx)** — Server Component `async`: cuatro `serverFetchAll` en paralelo (colecciones paginadas de a 50; el catálogo de vinos puede pasar de ahí sin avisar) y la conversión de los decimales con `toNumber()`, para que los componentes de presentación reciban números limpios.
   - Un fallo se convierte en `null` para pintar el aviso de "backend caído", pero **solo si es un `ApiError`** (`.catch(nullOnApiError)`): cualquier otra excepción se vuelve a lanzar, porque `serverFetchAll` señaliza con `redirect()` cuando la sesión ya no sirve y tragarse esa señal dejaría a la persona mirando un mensaje de error en vez de navegar a `/login`. Las tres páginas del owner-panel, `/admin` y `/supplier` usan ya este mismo helper.
-- **[app/p/casa-brava/owner-panel/catalogos/actions.ts](app/p/casa-brava/owner-panel/catalogos/actions.ts)** — doce Server Actions (crear/editar/eliminar × cuatro catálogos). Las doce difieren solo en endpoint, cuerpo y mensaje de respaldo; el resto —`revalidatePath(ownerPanelRoutes().catalogs)`, devolver `{ success: true } | { error: string }` sin lanzar nunca— vive una sola vez en el helper interno `escribirCatalogo`.
+- **[app/p/casa-brava/owner-panel/catalogos/actions.ts](app/p/casa-brava/owner-panel/catalogos/actions.ts)** — doce Server Actions (crear/editar/eliminar × cuatro catálogos). Las doce difieren solo en endpoint, cuerpo y mensaje de respaldo; el resto —`revalidatePath(ownerPanelRoutes(TENANT_ZERO_SLUG).catalogos)`, devolver `{ success: true } | { error: string }` sin lanzar nunca— vive una sola vez en el helper interno `escribirCatalogo`.
 - **[components/CatalogTable.tsx](components/CatalogTable.tsx)** — el CRUD genérico: tabla, modal de crear/editar y confirmación de borrado en **dos pasos**, igual que en reservaciones. Se describe **con datos** (`fields: CatalogField[]`) en vez de existir cuatro veces copiado. Trabaja siempre con strings (es lo que devuelve un `<input>`); cada fila trae `values` (lo que edita el formulario) y `display` (lo ya formateado para la celda, que puede ser un `ReactNode` para pintar una insignia). El modal de edición lleva `key={row.id}`: el estado del formulario se siembra en el inicializador de `useState`, así que sin esa `key` una segunda edición reutilizaría los valores de la primera.
 - **[components/CatalogsView.tsx](components/CatalogsView.tsx)** — el **adaptador**: define los campos de cada catálogo, sus textos y la traducción del formulario (todo strings) al cuerpo tipado de cada Server Action. La conversión de importes con `toNumber()` se hace aquí, en el último punto antes de la petición.
 
@@ -357,16 +466,23 @@ del marketplace completo. Protegido por el mismo guard `admin` de siempre
 (ver "Guards de ruta"), pero ya no comparte ruta ni componentes con el panel
 de Casa Brava.
 
-- **[app/admin/page.tsx](app/admin/page.tsx)** — Server Component `async`: tres `serverFetchAll` en paralelo (`/api/usuarios/`, `/api/reservaciones/reservaciones/`, `/api/propiedades/`) con `.catch(nullOnApiError)`. **Todo o nada**: si falta cualquiera de las tres, un solo aviso de error — una métrica calculada con una colección faltante sería un número falso, no uno incompleto. Las analíticas se calculan **aquí, en el servidor**, con [lib/platform-metrics.ts](lib/platform-metrics.ts) (funciones puras):
+- **[app/admin/page.tsx](app/admin/page.tsx)** — Server Component `async`: tres `serverFetchAll` en paralelo, `/api/usuarios/`, `/api/reservaciones/reservaciones/` (con sesión admin, las estadías de todo el sistema) y `/api/propiedades/` (la capacidad contra la que se mide la ocupación), con `.catch(nullOnApiError)`. Las reservaciones **no se listan**: son el insumo de los KPIs y de a qué propiedad pertenece cada cuenta. Todo se cruza en el servidor, una sola vez. No pide `getSessionUser()` porque el panel no tiene acciones que necesiten `currentUserId` (es de solo lectura, sin CRUD). **Todo o nada**: si falta cualquiera de las tres colecciones, un solo aviso de error — una métrica calculada con una colección faltante sería un número falso, no uno incompleto.
+- **KPIs de plataforma, calculados en el servidor** con [lib/platform-metrics.ts](lib/platform-metrics.ts) (funciones puras) y pintados con `KpiCard`:
   - **GMV histórico**: Σ `gran_total` de las reservaciones `ESTADOS_CONSOLIDADOS` (`confirmada` + `finalizada`), **excluyendo las exentas** (`payment_status = "na"`, estancias de propietario). Sumado en centavos con `toCents()`, formateado con `formatMoney()`; los montos son los del backend, nunca recalculados contra el catálogo.
   - **Take-rate capturado (10 %)**: `PHH_COMMISSION_RATE` ([lib/commission-rates.ts](lib/commission-rates.ts), espejo del default de `SupplierProfile.commission_rate`) sobre el GMV. Es una **proyección**: el backend todavía no liquida `platform_fee` (queda en 0).
   - **Ocupación agregada del año**: noches consolidadas que caen dentro del año calendario ÷ (días del año × propiedades activas, más cualquier propiedad con estancias ese año). Las exentas sí cuentan aquí: ocupan la casa aunque no se cobren.
   - **Cohortes**: recurrentes (más de una reservación `finalizada`) sobre quienes tienen al menos una, y nuevos registros de huésped en los últimos 30 días.
   - La fecha de referencia sale de un helper fuera del componente (`new Date()` es impuro para `react-hooks/purity`).
-- **[components/GlobalUsersPanel.tsx](components/GlobalUsersPanel.tsx)** — Client Component: grid de `KpiCard` y la tabla de usuarios con **cuatro filtros** en `<select>` (Rol, Estado, Vínculo, Propiedad), con el conteo de cada opción. Filtra en memoria sobre la lista ya cargada — ni un round-trip al backend por filtro —, y el filtrado y los conteos se resuelven en una pasada memoizada cada uno.
-  - **Vínculo** (`recurrente` | `con-reservacion` | `sin-reservacion`) y **Propiedad** se derivan en el servidor de las reservaciones reales (`buildGlobalUsers`), con propiedades reales de Django (`buildPropertyOptions`), nunca del directorio mock.
-  - **`GlobalUser` ya no es un alias de `Usuario`**: es un `Pick` con solo lo que se pinta o se filtra (`id`, `nombre_completo`, `email`, `role`, `status`, `created_at`) más lo derivado. Todo lo que se pasa por props a un Client Component viaja serializado al navegador, así que `phone`, `date_of_birth` y `document_id` no bajan (minimización de datos). Tampoco baja la colección de reservaciones: solo el agregado.
-- **Es de solo lectura a propósito.** No existe un endpoint que consolide usuarios por propiedad, así que `/api/usuarios/` es, hoy, la misma colección que ya gestiona el owner-panel de Casa Brava con su propio CRUD. Duplicar aquí crear/editar/eliminar sería una segunda fuente de verdad para la misma escritura.
+- **La relación cuenta ↔ propiedad se deriva, no se pide.** Vive en **[lib/user-properties.ts](lib/user-properties.ts)** y se tipa en **[lib/types/marketplace.ts](lib/types/marketplace.ts)** (`PropertyLinkKind`, `UserPropertyLink`, `UserPropertyScope`), nunca en `lib/api/types.ts`: `propertyScope` no es un campo de ninguna respuesta de Django, y mezclarlos haría imposible distinguir al leer el tipo qué llegó del backend y qué armó el frontend. Las dos mitades:
+  - **Las estadías son reales**: salen de las reservaciones, y cada una trae su propiedad anidada (`reservation.property`, `PropertyResumen` — sí está en `lib/api/types.ts`, porque **eso** sí lo devuelve la API). Cuando Django sirva varias propiedades, esta mitad ya es correcta sola.
+  - **La propiedad de un `holder` se atribuye a Tenant 0.** El modelo del backend ya relaciona proveedor → propiedades (`SupplierProfile` → `Property`), pero ningún endpoint expone ese vínculo por usuario: `/api/propiedades/` no dice de qué cuenta es cada proveedor, y no hay listado de `PropertyAccessGrant`. Mientras Tenant 0 sea la única propiedad con backend real, atribuirla es exacto. El día que exista el endpoint, se cambia `ownedPropertySlugs()` y **nada más** de ese archivo.
+- **Una fila por propiedad, no una por reservación**: tres estadías en la misma casa son un solo vínculo, con `hasActiveStay` en `true` si alguna sigue viva (`pendiente`/`confirmada`, vía `ESTADOS_ACTIVOS`). `kind: "owner"` pisa a `"stay"`: un propietario que se hospeda en su propia casa se lee como propietario.
+- **[components/GlobalUsersPanel.tsx](components/GlobalUsersPanel.tsx)** — Client Component con la tabla (Nombre, Correo, Rol, **Propiedades / Reservas**, Estado, Fecha de registro) y cuatro filtros. Exporta `GlobalUser` (`GlobalUserFields & { propertyScope }`), que ya no es un alias de `Usuario`: `GlobalUserFields` es un `Pick` con solo lo que la tabla pinta o filtra (`id`, `nombre_completo`, `email`, `role`, `status`, `created_at`). Todo lo que se pasa por props a un Client Component viaja serializado al navegador, así que la página descarta `phone`, `date_of_birth` y `document_id` antes de `attachPropertyScopes()` (minimización de datos); tampoco baja la colección de reservaciones, solo el agregado. La columna se pinta según el rol:
+  - **`admin`** — distintivo neutro **"Plataforma PHH / Global"**, sin ningún badge de reservación. El administrador de PHH no participa en estadías ni pertenece a una propiedad, así que pintarle un estado operativo —aunque fuera "sin reservaciones"— insinuaría un ciclo de vida que no tiene. El color es deliberadamente distinto del de las estadías, mismo criterio que el badge `na` de pagos en `ReservationsTable.tsx`: se lee como "no aplica".
+  - **`holder`** — al menos una propiedad, con la etiqueta "· Propietario" (hoy, siempre Casa Brava).
+  - **`guest`** — 0, 1 o N propiedades, cada una marcada "· Estadía activa" (verde) o "· Estadía pasada" (neutro). Sin ninguna, la celda dice **"Sin reservaciones activas"**.
+- **Cuatro filtros, todos en el cliente**: rol y estado como pastillas (`FilterPills`, sin cambios) más dos `<select>` (`FilterSelect`) — **Vínculo** (Plataforma PHH / Propietarios / Con estadía activa / Sin propiedades asociadas) y **Propiedad asociada**. "Vínculo" no es un duplicado de "rol": "con estadía activa" cruza huéspedes y propietarios, y "sin propiedades" aísla a quien se registró pero nunca reservó. Las opciones de "Propiedad asociada" se derivan de los vínculos ya calculados, así que el select nunca ofrece una propiedad que dejaría la tabla vacía y una propiedad nueva aparece sola. Cada opción muestra su conteo (una pasada memoizada sobre la lista completa, que no se repite al mover un filtro), hay un contador de resultados con `aria-live` y un botón "Limpiar filtros". Todo el filtrado corre sobre la lista ya cargada: **cambiar de filtro no dispara ninguna petición** (verificado en los logs del backend).
+- **Es de solo lectura a propósito.** No existe un endpoint que consolide usuarios por propiedad, así que `/api/usuarios/` es, hoy, la misma colección completa que ya gestiona el owner-panel de Casa Brava con su propio CRUD. Duplicar aquí crear/editar/eliminar sobre la misma colección sería una segunda fuente de verdad para la misma escritura — el día que el backend exponga el listado consolidado (y el vínculo proveedor → propiedad), este panel gana ese endpoint y, ahí sí, su propio CRUD si corresponde, en vez de crecer el actual.
 
 ---
 

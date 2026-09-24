@@ -244,7 +244,7 @@ def _validar_exencion(guest, payment_status):
     la regla vive aquí: sin este guard, cualquier reservación se podría sacar
     del GMV de la plataforma con solo mandar `"na"` desde el cliente.
     """
-    if payment_status == PaymentStatus.NO_APLICA and not guest.es_holder:
+    if payment_status == PaymentStatus.NA and not guest.es_holder:
         raise ExencionInvalidaError(
             "Solo la estancia de un propietario puede marcarse como exenta de cobro "
             "(«No aplica»)."
@@ -278,13 +278,19 @@ def crear_reservacion(
     descuento); en el checkout de autoservicio del huésped se omite y el total
     se recalcula aquí.
 
-    `payment_status` omitido: la estancia de un propietario (`holder`) nace
-    exenta (`"na"`); la de cualquier otro huésped, `pendiente` (el default
-    del modelo). Si viene explícito, `"na"` solo se acepta para un `holder`.
+    `payment_status` por defecto es `pendiente` (default del modelo), salvo
+    para un `guest` con rol `holder`: un propietario no paga la renta de su
+    propia propiedad, así que su estadía nace en `na` ("No aplica / Exento")
+    en vez de `pendiente` — tanto si reserva desde su propia sesión como si un
+    admin la da de alta manualmente a su nombre desde el panel. Solo aplica
+    cuando `payment_status` no viene explícito: si se especifica, se respeta
+    tal cual (p. ej. un admin que de todos modos quiera cobrarle).
+
+    Lo que no se respeta es `"na"` explícito para quien **no** es `holder`:
+    `_validar_exencion` lo rechaza (400), para que ninguna reservación salga
+    del GMV de la plataforma con solo mandar ese valor.
     """
     validar_fechas(check_in, check_out)
-    if payment_status is None and guest.es_holder:
-        payment_status = PaymentStatus.NO_APLICA
     _validar_exencion(guest, payment_status)
     if propiedad is None:
         propiedad = _propiedad_tenant_cero()
@@ -321,6 +327,8 @@ def crear_reservacion(
     }
     if payment_status is not None:
         campos["payment_status"] = payment_status
+    elif guest.es_holder:
+        campos["payment_status"] = PaymentStatus.NA
 
     return Reservation.objects.create(**campos)
 

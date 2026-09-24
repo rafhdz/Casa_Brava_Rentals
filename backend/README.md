@@ -165,7 +165,7 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
 
 | Función | Reemplaza a | Qué protege |
 | --- | --- | --- |
-| `crear_reservacion` | `checkoutStay` + `createReservation` | Bloquea la fila de `Property` reservada antes de verificar solapamiento (acotado a esa propiedad), valida `INVITE_ONLY` antes de tocar la base y resuelve la exención de cobro de un propietario (regla 6) |
+| `crear_reservacion` | `checkoutStay` + `createReservation` | Bloquea la fila de `Property` reservada antes de verificar solapamiento (acotado a esa propiedad), valida `INVITE_ONLY` antes de tocar la base y resuelve la exención de cobro de un propietario (ver "Estado de cobro" más abajo) |
 | `actualizar_reservacion` | `updateReservation` | Solapamiento al confirmar, re-adquisición al reactivar, liberación al cancelar — todo acotado a `reservacion.property` —, y rechaza exentar a quien no es propietario |
 | `eliminar_reservacion` | `deleteReservation` | Soft delete + liberación de inventario |
 | `reservar_bloque_spa` | `book_spa_slot()` | `select_for_update()` sobre el bloque de `SpaAvailability` |
@@ -173,7 +173,7 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
 | `liberar_slots_de_reservacion` | `release_spa_slots_for_reservation()` | Cancelar libera horarios sin borrar historial |
 | `readquirir_slots_de_reservacion` | `reacquire_spa_slots_for_reservation()` | Reactivar una cancelada no puede pisar lo que otro ya tomó |
 
-### Las seis reglas que hay que conocer antes de tocar este archivo
+### Las cinco reglas que hay que conocer antes de tocar este archivo
 
 1. **Orden de bloqueo fijo**: `Property` (la reservada) → `Reservation` →
    `SpaAvailability` (recorrida ordenada por masajista, fecha, hora). Dos
@@ -218,18 +218,6 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
    explícita en el payload, se usa el Tenant 0 (`_propiedad_tenant_cero`,
    slug `casa-brava`) como fallback de retrocompatibilidad — es la única
    propiedad del MVP actual, y hoy es `INVITE_ONLY` (ver §9).
-6. **Estancias exentas (`payment_status = "na"`, "No aplica")**: la estancia
-   de un propietario (rol `holder`) en su propia casa no se cobra.
-   `crear_reservacion` la crea exenta si el huésped es `holder` y el payload no
-   trae `payment_status`; si lo trae explícito, se respeta (el admin puede
-   decidir cobrarle). `_validar_exencion` rechaza `"na"` —al crear y al
-   editar— para cualquier huésped que no sea `holder` (`ExencionInvalidaError`
-   → 400): sin ese guard, cualquier reservación se podría sacar del GMV de la
-   plataforma con solo mandar `"na"`. `pagos.services.derivar_estado_de_pago`
-   nunca deriva `"na"` ni lo revierte: la exención la declara el admin sobre la
-   reservación, y ningún movimiento la pisa en silencio. Por lo mismo, un
-   `Payment` individual no puede llevar `status = "na"`
-   (`PaymentSerializer.validate_status` → 400).
 
 ### Montos
 
@@ -238,6 +226,54 @@ el monto que mande un cliente se descarta. La única excepción es el total de l
 estadía cuando quien crea es un admin, que puede ajustarlo a mano (descuentos).
 Los precios ya guardados son un *snapshot* del momento de contratar y no se
 recalculan contra el catálogo vigente.
+
+### Estado de cobro (`payment_status`) y el rol `holder`
+
+`PaymentStatus` (`pagos/models.py`) tiene un quinto valor, **`NA`** ("No aplica
+/ Exento"), además de `pendiente`/`parcial`/`completado`/`reembolsado`. Es el
+estado por defecto de la estadía de un **propietario** (`holder`): no paga la
+renta de su propia propiedad, así que su reservación no debe nacer en
+`pendiente` como si fuera un huésped esperando pagar.
+
+* **Quién lo asigna y cuándo.** `crear_reservacion` revisa el rol del
+  **huésped a cuyo nombre se crea la reservación** (`guest.es_holder`, no el
+  de quien hace la petición) y, solo si el payload no manda `payment_status`
+  explícito, lo fija en `na` en vez del default del modelo (`pendiente`).
+  Cubre por igual al propietario que reserva su propia estadía y al admin que
+  la da de alta manualmente por él desde el panel — y sigue siendo posible
+  forzar cualquier otro estado a mano si de verdad hay que cobrarle algo.
+* **`pagos.services.derivar_estado_de_pago` respeta `na`.** La regla general
+  es "sin nada cobrado ⇒ `pendiente`", pero eso reescribiría `na` a
+  `pendiente` la primera vez que algo dispare una resincronización (p. ej.
+  `registrar_pago` sobre esa misma reservación por otro concepto). La función
+  ahora comprueba el `payment_status` actual antes de asumir `pendiente`: si
+  ya está en `na` y no hay ningún movimiento registrado, se queda en `na`. En
+  cuanto exista un cobro real, vuelve a derivarse con la lógica normal
+  (`parcial`/`completado`/`reembolsado`) a partir de ahí.
+* **Solo para `holder`.** `_validar_exencion` rechaza `na` —al crear y al
+  editar (`actualizar_reservacion`)— para cualquier huésped que no sea
+  `holder` (`ExencionInvalidaError` → 400): sin ese guard, cualquier
+  reservación se podría sacar del GMV de la plataforma con solo mandar `"na"`.
+  Por lo mismo, un `Payment` individual no puede llevar `status = "na"`
+  (`PaymentSerializer.validate_status` → 400): `na` describe a la
+  reservación, no a un movimiento.
+* **El solapamiento no distingue por `payment_status`.** `hay_solapamiento`
+  filtra por `status` (`activas()` = `pendiente`/`confirmada`), nunca por
+  `payment_status` — una reservación `na` con estado activo ya bloqueaba el
+  calendario igual que cualquier otra antes de que existiera este estado; no
+  hizo falta ningún cambio ahí.
+* **Un `holder` siempre es `is_active=True`.** `UsuarioManager.create_user`
+  (en `usuarios/models.py`) lo fuerza para ese rol sin importar qué reciba —
+  no es un `setdefault`. Es una salvaguarda defensiva: hoy `is_active` ya es
+  de solo lectura en `UsuarioSerializer` y no forma parte de
+  `UsuarioCreateSerializer`, así que ningún camino de la API puede
+  desactivarlo; esto cierra la puerta si algún día se agrega esa capacidad.
+* **`seed_demo`** da de alta una reservación de demostración para
+  `carlos.ruiz@example.com` (`holder`) en Casa Brava —`status=confirmada`,
+  `payment_status=na`— llamando al propio `reservaciones.services.crear_reservacion`
+  (no un `Reservation.objects.create()` a mano), para que pase por las mismas
+  reglas que cualquier alta real. Es idempotente: solo se crea si ese
+  propietario no tiene ya una reservación vigente en la propiedad.
 
 ### Errores de dominio → HTTP
 
@@ -347,8 +383,8 @@ los datos existentes migren sin reescribir llaves). Las diferencias son:
    reembolso parcial — justo los casos que el estado `parcial` ya contemplaba.
    La reservación conserva su estado agregado; la tabla nueva guarda cada
    movimiento que lo produjo, y el estado se deriva de ellos. El enum suma un
-   quinto valor que Supabase no tenía, `na` ("No aplica"): estancia exenta de
-   un propietario — se declara, no se deriva (§5, regla 6).
+   quinto valor que Supabase no tenía, `na` ("No aplica / Exento"): estancia exenta de
+   un propietario (§5, "Estado de cobro").
 3. **Las funciones plpgsql son ahora servicios de Python** (§5). Mismo
    comportamiento, misma estrategia de bloqueo.
 4. **RLS pasa a la capa de aplicación** (§6).

@@ -2,7 +2,11 @@ import OwnerNav from "@/components/OwnerNav";
 import CatalogsView from "@/components/CatalogsView";
 import { nullOnApiError, serverFetchAll } from "@/lib/api/server";
 import { toNumber } from "@/lib/format";
+import { getPropertyName, TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
 import type { FareType, FoodMenu, SpaMasseuse, Wine } from "@/lib/api/types";
+
+/** Ver la nota de `PROPERTY_SLUG` en la raíz del panel (../page.tsx). */
+const PROPERTY_SLUG = TENANT_ZERO_SLUG;
 
 /**
  * Panel de catálogos.
@@ -29,13 +33,13 @@ export default async function OwnerPanelCatalogsPage() {
 
   return (
     <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6">
-      <OwnerNav />
+      <OwnerNav propertySlug={PROPERTY_SLUG} />
 
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900">Catálogos</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Lo que se ofrece en Casa Brava: tarifas de la estadía y catálogos de los servicios
-          adicionales.
+          Lo que se ofrece en {getPropertyName(PROPERTY_SLUG)}: tarifas de la estadía y catálogos
+          de los servicios adicionales.
         </p>
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { registerAction } from "@/app/actions/auth";
 import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
@@ -27,6 +28,12 @@ const inputClassName = (hasError: boolean) =>
 // Los mensajes de error los redacta el backend (correo duplicado, contraseña
 // demasiado común o corta, etc.) y llegan ya en español desde la Server
 // Action, así que aquí no hay tabla de traducción: se muestran tal cual.
+
+// El alta es de una cuenta de Parras Home Hub (el marketplace), no de Casa
+// Brava: la misma cuenta sirve para cualquier propiedad del directorio, y la
+// invitación a una propiedad INVITE_ONLY es un paso aparte que no se resuelve
+// aquí (ver CLAUDE.md, "Arquitectura multi-tenant"). Por eso el copy y la
+// marca de esta pantalla son de PHH — igual que en /login.
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -154,11 +161,12 @@ export default function RegisterPage() {
     <div className="mx-auto flex max-w-md flex-col items-center px-4 py-16 sm:px-6">
       <div className="flex flex-col items-center text-center">
         <h1 className="text-3xl font-light tracking-wide text-neutral-900">
-          Regístrate en <span className="font-semibold">Casa Brava</span>
+          Regístrate en <span className="font-semibold">Parras Home Hub</span>
         </h1>
         <p className="mt-3 text-sm text-neutral-500">
-          Esta pantalla es de acceso exclusivo mediante liga de invitación. Completa tus
-          datos para crear tu cuenta.
+          Con una sola cuenta reservas en las propiedades abiertas del
+          directorio y, si recibes una invitación, también en las estancias
+          exclusivas como Casa Brava.
         </p>
       </div>
 
@@ -235,7 +243,7 @@ export default function RegisterPage() {
                   setEmail(e.target.value);
                   if (emailError) setEmailError(null);
                 }}
-                placeholder="tu@invitado.com"
+                placeholder="tu@correo.com"
                 className={inputClassName(!!emailError)}
               />
               {emailError && <p className="text-xs text-red-600">{emailError}</p>}
@@ -317,8 +325,14 @@ export default function RegisterPage() {
       </div>
 
       <p className="mt-6 text-center text-xs text-neutral-400">
-        ¿Ya tienes cuenta? Inicia sesión en{" "}
-        <span className="font-medium text-neutral-500">/login</span>.
+        ¿Ya tienes cuenta?{" "}
+        <Link
+          href="/login"
+          className="font-medium text-neutral-500 underline-offset-2 hover:text-neutral-900 hover:underline"
+        >
+          Inicia sesión en Parras Home Hub
+        </Link>
+        .
       </p>
     </div>
   );

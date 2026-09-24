@@ -57,7 +57,7 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   parcial: "Parcial",
   completado: "Completado",
   reembolsado: "Reembolsado",
-  na: "No aplica",
+  na: "No aplica (exento)",
 };
 
 const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
@@ -65,7 +65,7 @@ const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
   parcial: "bg-blue-100 text-blue-700",
   completado: "bg-green-100 text-green-700",
   reembolsado: "bg-purple-100 text-purple-700",
-  na: "bg-neutral-100 text-neutral-500",
+  na: "border border-neutral-300 bg-neutral-100 text-neutral-700",
 };
 
 // Estados de cobro que aplican a cualquier huésped. `"na"` (estancia exenta)
@@ -86,7 +86,7 @@ function PaymentStatusOptions({ allowExempt }: { allowExempt: boolean }) {
           {PAYMENT_STATUS_LABELS[status]}
         </option>
       ))}
-      {allowExempt && <option value="na">No aplica (propietario)</option>}
+      {allowExempt && <option value="na">No aplica (exento)</option>}
     </>
   );
 }
@@ -377,19 +377,18 @@ function CreateReservationModal({
   const [checkOut, setCheckOut] = useState("");
   const [fareTypeId, setFareTypeId] = useState(fareTypes[0]?.id ?? "");
   const [status, setStatus] = useState<ReservationStatus>("pendiente");
-  // Mismo patrón "override manual sobre un valor derivado" que el monto: null
-  // mientras el admin no toque el select, y entonces rige la sugerencia
-  // (`"na"` para un propietario, `"pendiente"` para cualquier otro). Se
-  // deriva en cada render —sin useEffect que "sincronice" el select al
-  // cambiar de huésped—, así que no hay setState en un efecto
-  // (react-hooks/set-state-in-effect) ni renders en cadena.
-  const [manualPaymentStatus, setManualPaymentStatus] = useState<PaymentStatus | null>(null);
   // null hasta que el admin toca el campo a mano; a partir de ahí se
   // "congela" en ese valor y deja de recalcularse aunque cambien
   // fechas/tarifa después. Derivado inline en cada render (ver totalAmount
-  // abajo) — sin useEffect/setState, para no chocar con la regla de lint
-  // react-hooks/set-state-in-effect ya documentada en CLAUDE.md.
+  // y paymentStatus abajo) — sin useEffect/setState, para no chocar con la
+  // regla de lint react-hooks/set-state-in-effect ya documentada en
+  // CLAUDE.md.
   const [manualTotalAmount, setManualTotalAmount] = useState<number | null>(null);
+  // Mismo patrón para el estado de pago: mientras el admin no toque el
+  // select rige la sugerencia (`"na"` para un propietario, `"pendiente"`
+  // para cualquier otro — el mismo default que aplica el backend), así que
+  // cambiar de huésped no necesita ningún efecto que "sincronice" el select.
+  const [manualPaymentStatus, setManualPaymentStatus] = useState<PaymentStatus | null>(null);
 
   useCloseOnEscape(onClose);
 

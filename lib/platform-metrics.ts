@@ -4,6 +4,10 @@
 // (Server Component) hace los fetch y llama aquí; el cliente solo recibe el
 // resultado ya agregado, nunca la colección completa de reservaciones.
 //
+// No confundir con lib/user-properties.ts, que resuelve a qué propiedad está
+// vinculada cada cuenta (la columna y los filtros Vínculo/Propiedad de la
+// tabla): aquí solo viven los KPIs de plataforma.
+//
 // Reglas numéricas (ver CLAUDE.md, "Capa de acceso a la API"):
 //   - Todo `Decimal` de DRF pasa por `toCents()` (que usa `toNumber()`)
 //     antes de sumarse: nunca aritmética sobre el string.
@@ -54,39 +58,6 @@ export type PlatformMetrics = {
   };
 };
 
-/**
- * Vínculo de un usuario con la plataforma, derivado de sus reservaciones:
- * alimenta el filtro "Vínculo" de `GlobalUsersPanel`.
- */
-export type GuestLink = "recurrente" | "con-reservacion" | "sin-reservacion";
-
-export const GUEST_LINK_LABELS: Record<GuestLink, string> = {
-  recurrente: "Recurrente",
-  "con-reservacion": "Con reservación",
-  "sin-reservacion": "Sin reservación",
-};
-
-/**
- * Usuario tal como lo recibe el panel universal (Client Component).
- *
- * Deliberadamente NO es el `Usuario` completo de la API: `phone`,
- * `date_of_birth` y `document_id` no se usan en esta tabla, y todo lo que se
- * pasa por props a un Client Component viaja serializado al navegador. Se
- * manda solo lo que se pinta o se filtra (minimización de datos), más lo
- * derivado de las reservaciones en el servidor.
- */
-export type GlobalUser = Pick<
-  Usuario,
-  "id" | "nombre_completo" | "email" | "role" | "status" | "created_at"
-> & {
-  link: GuestLink;
-  /** Propiedades (reales, de Django) en las que tiene alguna reservación. */
-  propertyIds: string[];
-  concludedStays: number;
-};
-
-export type PropertyOption = { id: string; name: string };
-
 function groupByGuest(reservations: readonly Reservation[]): Map<string, Reservation[]> {
   const byGuest = new Map<string, Reservation[]>();
   for (const reservation of reservations) {
@@ -123,7 +94,8 @@ export function computePlatformMetrics({
   properties,
   referenceDate,
 }: {
-  users: readonly Usuario[];
+  /** Solo se leen `role` y `created_at` (cohorte de nuevos registros). */
+  users: readonly Pick<Usuario, "role" | "created_at">[];
   /** Ya vienen sin soft delete: el backend nunca las devuelve. */
   reservations: readonly Reservation[];
   properties: readonly PropertyListing[];
@@ -187,49 +159,4 @@ export function computePlatformMetrics({
       newRegistrations,
     },
   };
-}
-
-/** Filas del panel: el usuario mínimo + su vínculo y propiedades, en una pasada. */
-export function buildGlobalUsers(
-  users: readonly Usuario[],
-  reservations: readonly Reservation[]
-): GlobalUser[] {
-  const byGuest = groupByGuest(reservations);
-
-  return users.map((user) => {
-    const own = byGuest.get(user.id) ?? [];
-    const concludedStays = countConcluded(own);
-    const hasLiveReservation = own.some((reservation) => reservation.status !== "cancelada");
-    const link: GuestLink =
-      concludedStays > 1 ? "recurrente" : hasLiveReservation ? "con-reservacion" : "sin-reservacion";
-
-    return {
-      id: user.id,
-      nombre_completo: user.nombre_completo,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-      created_at: user.created_at,
-      link,
-      propertyIds: [...new Set(own.map((reservation) => reservation.property.id))],
-      concludedStays,
-    };
-  });
-}
-
-/**
- * Opciones del filtro "Propiedad": las activas del catálogo de Django más las
- * que aparezcan en alguna reservación (aunque ya no estén activas), sin
- * duplicados y en orden alfabético.
- */
-export function buildPropertyOptions(
-  properties: readonly PropertyListing[],
-  reservations: readonly Reservation[]
-): PropertyOption[] {
-  const byId = new Map<string, PropertyOption>();
-  for (const property of properties) byId.set(property.id, { id: property.id, name: property.name });
-  for (const { property } of reservations) {
-    if (!byId.has(property.id)) byId.set(property.id, { id: property.id, name: property.name });
-  }
-  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
 }

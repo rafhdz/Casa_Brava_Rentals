@@ -20,21 +20,25 @@ from django.db import models
 
 
 class PaymentStatus(models.TextChoices):
-    """Equivalente del ENUM `public.payment_status_type`, más `NO_APLICA`.
+    """Equivalente del ENUM `public.payment_status_type`.
 
-    `NO_APLICA` ("na") no existía en Supabase: marca una estancia **exenta de
-    cobro** — la de un propietario (rol `holder`) en su propia casa. No es un
-    estado al que se llegue por movimientos (`pagos.services` nunca lo
-    deriva): lo declara el admin sobre la reservación, y solo es válido si el
-    huésped es `holder` (ver `reservaciones.services._validar_exencion`). Por
-    lo mismo, un `Payment` individual nunca puede llevarlo.
+    `NA` ("No aplica / Exento") no es un movimiento de cobro: es el estado que
+    recibe por defecto la estadía de un propietario (`holder`), que no paga la
+    renta de su propia propiedad. `derivar_estado_de_pago` (en `pagos.services`)
+    lo respeta y no lo reemplaza por `PENDIENTE` solo porque no existan
+    movimientos — ver CLAUDE.md, reglas de negocio para el rol `holder`.
+
+    Solo es válido para un huésped `holder` (`reservaciones.services.
+    _validar_exencion` lo rechaza para cualquier otro) y nunca para un
+    `Payment` individual (`PaymentSerializer.validate_status`): describe a la
+    reservación, no a un movimiento.
     """
 
     PENDIENTE = "pendiente", "Pendiente"
     PARCIAL = "parcial", "Parcial"
     COMPLETADO = "completado", "Completado"
     REEMBOLSADO = "reembolsado", "Reembolsado"
-    NO_APLICA = "na", "No aplica"
+    NA = "na", "No aplica / Exento"
 
 
 class PaymentProvider(models.TextChoices):

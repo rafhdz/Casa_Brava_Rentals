@@ -4,7 +4,7 @@ import SupplierPropertiesTable, { type SupplierPropertyRow } from "@/components/
 import { nullOnApiError, publicFetchAll } from "@/lib/api/server";
 import { formatMoney, formatPercent, toNumber } from "@/lib/format";
 import { PROPERTIES, TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
-import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
+import { ownerPanelRoutes } from "@/lib/owner-panel";
 import {
   baselineOccupancyFromRating,
   projectAnnualRevenue,

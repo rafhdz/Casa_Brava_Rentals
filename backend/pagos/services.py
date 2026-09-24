@@ -29,20 +29,22 @@ def _total_cobrado(reservacion):
 
 
 def derivar_estado_de_pago(reservacion):
-    """Traduce los movimientos a uno de los cuatro estados de cobro.
+    """Traduce los movimientos a uno de los estados de cobro.
 
-    Una estancia exenta (`NO_APLICA`, la de un propietario en su casa) no se
-    re-deriva: la exención la declara el admin sobre la reservación y ningún
-    movimiento la revierte en silencio — para cobrarle, primero se le quita
-    la exención desde el panel.
+    `NA` ("No aplica / Exento") es la excepción a la regla "se deriva desde
+    cero": una reservación de propietario (`holder`) nace en `na` sin ningún
+    movimiento de por medio (ver `reservaciones.services.crear_reservacion`),
+    así que "sin nada cobrado" no debe traducirse a `PENDIENTE` como si fuera
+    un huésped esperando pagar. Si más adelante sí se le registra un cobro
+    real, el estado vuelve a derivarse normalmente a partir de ahí.
     """
-    if reservacion.payment_status == PaymentStatus.NO_APLICA:
-        return PaymentStatus.NO_APLICA
     if reservacion.payments.filter(status=PaymentStatus.REEMBOLSADO).exists():
         return PaymentStatus.REEMBOLSADO
 
     cobrado = _total_cobrado(reservacion)
     if cobrado <= 0:
+        if reservacion.payment_status == PaymentStatus.NA:
+            return PaymentStatus.NA
         return PaymentStatus.PENDIENTE
     if cobrado >= reservacion.gran_total:
         return PaymentStatus.COMPLETADO

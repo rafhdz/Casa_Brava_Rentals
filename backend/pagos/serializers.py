@@ -20,9 +20,9 @@ class PaymentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate_status(self, value):
-        """`NO_APLICA` describe a la reservación (estancia exenta), no a un
+        """`NA` describe a la reservación (estancia exenta), no a un
         movimiento: un cobro o reembolso siempre tiene un estado real."""
-        if value == PaymentStatus.NO_APLICA:
+        if value == PaymentStatus.NA:
             raise serializers.ValidationError(
                 "Un movimiento de cobro no puede marcarse «No aplica»; la exención "
                 "se declara en la reservación."

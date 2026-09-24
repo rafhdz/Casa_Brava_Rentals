@@ -1,48 +1,39 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { parseISO } from "date-fns";
 import { BadgePercent, BedDouble, Repeat, Wallet, X } from "lucide-react";
 import KpiCard from "@/components/KpiCard";
 import { PHH_COMMISSION_RATE } from "@/lib/commission-rates";
 import { formatInteger, formatMoney, formatPercent } from "@/lib/format";
-import {
-  GUEST_LINK_LABELS,
-  NEW_REGISTRATION_WINDOW_DAYS,
-  type GlobalUser,
-  type GuestLink,
-  type PlatformMetrics,
-  type PropertyOption,
-} from "@/lib/platform-metrics";
-import type { ProfileStatus, RoleType } from "@/lib/api/types";
+import { NEW_REGISTRATION_WINDOW_DAYS, type PlatformMetrics } from "@/lib/platform-metrics";
+import { NO_PROPERTIES_LABEL, PLATFORM_SCOPE_LABEL } from "@/lib/user-properties";
+import type { ProfileStatus, RoleType, Usuario } from "@/lib/api/types";
+import type { UserPropertyLink, UserPropertyScope } from "@/lib/types/marketplace";
 
 /**
- * Panel universal de PHH (`/admin`): grid de KPIs de plataforma y la tabla de
- * usuarios con cuatro filtros instantáneos (Rol, Estado, Vínculo, Propiedad).
+ * Usuario del panel universal de PHH (`/admin`): el `Usuario` real de la API
+ * (lib/api/types.ts) más el vínculo con el directorio de propiedades, que la
+ * API **no** devuelve y la página deriva en el servidor con
+ * `attachPropertyScopes()` (ver lib/user-properties.ts para de dónde sale cada
+ * mitad y qué tan real es).
  *
- * Todo llega ya calculado desde el Server Component (app/admin/page.tsx):
- * las métricas en `metrics` y el vínculo/propiedades de cada usuario dentro
- * de `users`. Los filtros corren sobre esa lista en memoria — ni un
- * round-trip al backend por cambiar un filtro, y el filtrado y los conteos de
- * cada opción se resuelven en una sola pasada memoizada cada uno.
+ * La relación se modela aquí y en lib/types/marketplace.ts, nunca dentro de
+ * lib/api/types.ts: ese archivo es la transcripción de lo que responde Django,
+ * y `propertyScope` no es un campo de ninguna respuesta suya. Mezclarlos haría
+ * imposible distinguir, al leer el tipo, qué llegó del backend y qué armó el
+ * frontend.
  *
- * Solo lectura a propósito: el CRUD de usuarios vive en el owner-panel de
- * Casa Brava; duplicarlo aquí sería una segunda fuente de verdad para la
- * misma escritura (ver CLAUDE.md, "Panel de Control PHH").
+ * Del `Usuario` solo viaja lo que la tabla pinta o filtra (`GlobalUserFields`):
+ * todo lo que se pasa por props a un Client Component se serializa al
+ * navegador, así que `phone`, `date_of_birth` y `document_id` se quedan en el
+ * servidor (la página los descarta antes de llamar a `attachPropertyScopes`).
  */
-
-const ALL = "todos";
-type All = typeof ALL;
-
-type Filters = {
-  role: RoleType | All;
-  status: ProfileStatus | All;
-  link: GuestLink | All;
-  /** Id de una propiedad real de Django. */
-  property: string;
-};
-
-const INITIAL_FILTERS: Filters = { role: ALL, status: ALL, link: ALL, property: ALL };
+export type GlobalUserFields = Pick<
+  Usuario,
+  "id" | "nombre_completo" | "email" | "role" | "status" | "created_at"
+>;
+export type GlobalUser = GlobalUserFields & { propertyScope: UserPropertyScope };
 
 const ROLE_LABELS: Record<RoleType, string> = {
   admin: "Admin",
@@ -61,74 +52,62 @@ const STATUS_LABELS: Record<ProfileStatus, string> = {
   invitado: "Invitado",
 };
 
-const STATUS_BADGE_CLASSES: Record<ProfileStatus, string> = {
-  activo: "bg-green-100 text-green-700",
-  invitado: "bg-amber-100 text-amber-700",
-};
+const ROLE_FILTERS: Array<{ value: RoleType | "todos"; label: string }> = [
+  { value: "todos", label: "Todos los roles" },
+  { value: "admin", label: "Admin" },
+  { value: "holder", label: "Propietario" },
+  { value: "guest", label: "Huésped" },
+];
 
-const LINK_BADGE_CLASSES: Record<GuestLink, string> = {
-  recurrente: "bg-violet-100 text-violet-700",
-  "con-reservacion": "bg-sky-100 text-sky-700",
-  "sin-reservacion": "bg-neutral-100 text-neutral-500",
-};
+const STATUS_FILTERS: Array<{ value: ProfileStatus | "todos"; label: string }> = [
+  { value: "todos", label: "Todos los estados" },
+  { value: "activo", label: "Activo" },
+  { value: "invitado", label: "Invitado" },
+];
 
-const SELECT_CLASS =
-  "w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900 transition-all duration-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-neutral-900";
+/**
+ * Segmentación por **tipo de vínculo** con el directorio, que no es lo mismo
+ * que el rol: "con estadía activa" cruza huéspedes y propietarios, y "sin
+ * propiedades" aísla a las cuentas que se registraron pero nunca reservaron.
+ */
+type LinkFilter = "todos" | "platform" | "owner" | "estadia-activa" | "sin-propiedades";
 
-function Badge({ className, children }: { className: string; children: ReactNode }) {
-  return (
-    <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}>
-      {children}
-    </span>
+const LINK_FILTERS: Array<{ value: LinkFilter; label: string }> = [
+  { value: "todos", label: "Todos los vínculos" },
+  { value: "platform", label: "Plataforma PHH (global)" },
+  { value: "owner", label: "Propietarios de una propiedad" },
+  { value: "estadia-activa", label: "Con estadía activa" },
+  { value: "sin-propiedades", label: "Sin propiedades asociadas" },
+];
+
+const TODAS_LAS_PROPIEDADES = "todas";
+
+function plural(count: number, singular: string, pluralForm: string): string {
+  return `${formatInteger(count)} ${count === 1 ? singular : pluralForm}`;
+}
+
+/** Agrega el conteo a la etiqueta de una opción: "Huésped (12)". */
+function withCount<T extends string>(
+  options: Array<{ value: T; label: string }>,
+  counts: Map<string, number>,
+  allValue: T
+): Array<{ value: T; label: string }> {
+  return options.map((option) =>
+    option.value === allValue
+      ? option
+      : { ...option, label: `${option.label} (${counts.get(option.value) ?? 0})` }
   );
 }
 
-// `created_at` es un IsoDateTime (con hora), no un IsoDate — parseISO lo
-// interpreta en la zona horaria correcta sin el desfase de `new Date("yyyy-MM-dd")`
-// (ver CLAUDE.md, sección de fechas).
-function formatRegistrationDate(value: string): string {
-  return parseISO(value).toLocaleDateString("es-MX", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+function increment(counts: Map<string, number>, key: string) {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
 }
 
-type SelectOption<T extends string> = { value: T; label: string; count?: number };
-
-function FilterSelect<T extends string>({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: T;
-  options: SelectOption<T>[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <label htmlFor={id} className="flex min-w-0 flex-col gap-1">
-      <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">{label}</span>
-      <select
-        id={id}
-        value={value}
-        // El valor siempre sale de `options`, que está tipado como T.
-        onChange={(e) => onChange(e.target.value as T)}
-        className={SELECT_CLASS}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.count === undefined ? option.label : `${option.label} (${option.count})`}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
+/**
+ * Grid de KPIs de plataforma. Todo llega ya calculado desde el servidor
+ * (lib/platform-metrics.ts): aquí solo se formatea — `formatMoney` sobre
+ * centavos ÷ 100, nunca aritmética sobre los decimales de DRF.
+ */
 function PlatformKpis({ metrics }: { metrics: PlatformMetrics }) {
   const { occupancy, cohorts } = metrics;
 
@@ -202,27 +181,214 @@ function PlatformKpis({ metrics }: { metrics: PlatformMetrics }) {
   );
 }
 
-function plural(count: number, singular: string, pluralForm: string): string {
-  return `${formatInteger(count)} ${count === 1 ? singular : pluralForm}`;
+function RoleBadge({ role }: { role: RoleType }) {
+  return (
+    <span
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${ROLE_BADGE_CLASSES[role]}`}
+    >
+      {ROLE_LABELS[role]}
+    </span>
+  );
 }
 
-function increment(counts: Map<string, number>, key: string) {
-  counts.set(key, (counts.get(key) ?? 0) + 1);
+function StatusBadge({ status }: { status: ProfileStatus }) {
+  const isActivo = status === "activo";
+  return (
+    <span
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+        isActivo ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+      }`}
+    >
+      {STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+/**
+ * Celda "Propiedades / Reservas".
+ *
+ * El administrador de PHH no lleva badge de reservación: no participa en
+ * estadías ni pertenece a una propiedad, así que pintarle un estado operativo
+ * —aunque fuera "sin reservaciones"— insinuaría un ciclo de vida que no tiene.
+ * Lleva un distintivo neutro, deliberadamente distinto de los colores de
+ * estadía, con el mismo criterio que el badge `na` de pagos en
+ * ReservationsTable.tsx: se lee como "no aplica", no como una variante de otro
+ * estado.
+ */
+function PropertyScopeCell({ scope }: { scope: UserPropertyScope }) {
+  if (scope.scope === "platform") {
+    return (
+      <span className="inline-flex rounded-full border border-neutral-300 bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-700">
+        {PLATFORM_SCOPE_LABEL}
+      </span>
+    );
+  }
+
+  if (scope.links.length === 0) {
+    return <span className="text-xs text-neutral-400">{NO_PROPERTIES_LABEL}</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {scope.links.map((link) => (
+        <PropertyChip key={link.propertySlug} link={link} />
+      ))}
+    </div>
+  );
+}
+
+function PropertyChip({ link }: { link: UserPropertyLink }) {
+  const detalle =
+    link.kind === "owner"
+      ? "Propietario"
+      : link.hasActiveStay
+        ? "Estadía activa"
+        : "Estadía pasada";
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+        link.hasActiveStay
+          ? "bg-green-100 text-green-700"
+          : "bg-neutral-100 text-neutral-700"
+      }`}
+    >
+      {link.propertyName}
+      <span className="font-normal opacity-70">· {detalle}</span>
+    </span>
+  );
+}
+
+// `created_at` es un IsoDateTime (con hora), no un IsoDate — parseISO lo
+// interpreta en la zona horaria correcta sin el desfase de `new Date("yyyy-MM-dd")`
+// (ver CLAUDE.md, sección de fechas).
+function formatRegistrationDate(value: string): string {
+  return parseISO(value).toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function FilterPills<T extends string>({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  options: Array<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div aria-label={ariaLabel} className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      {options.map((option) => {
+        const isActive = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={isActive}
+            className={`inline-flex shrink-0 items-center rounded-full border px-4 py-2 text-sm font-medium transition-all duration-300 ease-in-out active:scale-95 ${
+              isActive
+                ? "border-neutral-900 bg-neutral-900 text-white"
+                : "border-neutral-300 text-neutral-600 hover:border-neutral-900 hover:text-neutral-900"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Los dos filtros con más opciones van en `<select>`: como pastillas no cabrían. */
+function FilterSelect<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-xs">
+      <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900 transition-all duration-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-neutral-900"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function cumpleFiltroDeVinculo(scope: UserPropertyScope, filter: LinkFilter): boolean {
+  switch (filter) {
+    case "todos":
+      return true;
+    case "platform":
+      return scope.scope === "platform";
+    case "owner":
+      return scope.scope === "properties" && scope.links.some((link) => link.kind === "owner");
+    case "estadia-activa":
+      return scope.scope === "properties" && scope.links.some((link) => link.hasActiveStay);
+    case "sin-propiedades":
+      return scope.scope === "properties" && scope.links.length === 0;
+  }
 }
 
 export default function GlobalUsersPanel({
   users,
-  properties,
   metrics,
 }: {
   users: GlobalUser[];
-  properties: PropertyOption[];
   metrics: PlatformMetrics;
 }) {
-  const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
+  const [roleFilter, setRoleFilter] = useState<RoleType | "todos">("todos");
+  const [statusFilter, setStatusFilter] = useState<ProfileStatus | "todos">("todos");
+  const [linkFilter, setLinkFilter] = useState<LinkFilter>("todos");
+  const [propertyFilter, setPropertyFilter] = useState<string>(TODAS_LAS_PROPIEDADES);
 
-  // Conteo por opción de cada filtro, sobre la lista completa: una sola
-  // pasada que solo se repite si cambia `users` (no al mover un filtro).
+  // Las opciones salen de los vínculos ya calculados, no de una lista aparte
+  // de propiedades: así el select nunca ofrece una propiedad que dejaría la
+  // tabla vacía, y una propiedad nueva —mock o servida por Django— aparece
+  // sola en cuanto alguien queda vinculado a ella.
+  const propertyOptions = useMemo(() => {
+    const porSlug = new Map<string, string>();
+    for (const user of users) {
+      if (user.propertyScope.scope !== "properties") continue;
+      for (const link of user.propertyScope.links) {
+        porSlug.set(link.propertySlug, link.propertyName);
+      }
+    }
+
+    return [
+      { value: TODAS_LAS_PROPIEDADES, label: "Todas las propiedades" },
+      ...[...porSlug.entries()]
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "es")),
+    ];
+  }, [users]);
+
+  // Conteo por opción de los cuatro filtros, sobre la lista completa: una sola
+  // pasada que solo se repite si cambia `users`, no al mover un filtro. Un
+  // mismo usuario puede sumar en dos vínculos (un propietario con estadía
+  // activa en su propia casa), igual que puede pasar ambos filtros.
   const counts = useMemo(() => {
     const role = new Map<string, number>();
     const status = new Map<string, number>();
@@ -231,67 +397,51 @@ export default function GlobalUsersPanel({
     for (const user of users) {
       increment(role, user.role);
       increment(status, user.status);
-      increment(link, user.link);
-      for (const propertyId of user.propertyIds) increment(property, propertyId);
+      for (const option of LINK_FILTERS) {
+        if (option.value !== "todos" && cumpleFiltroDeVinculo(user.propertyScope, option.value)) {
+          increment(link, option.value);
+        }
+      }
+      if (user.propertyScope.scope === "properties") {
+        for (const propertyLink of user.propertyScope.links) increment(property, propertyLink.propertySlug);
+      }
     }
     return { role, status, link, property };
   }, [users]);
 
-  const propertyNames = useMemo(
-    () => new Map(properties.map((property) => [property.id, property.name])),
-    [properties]
-  );
+  const hasActiveFilters =
+    roleFilter !== "todos" ||
+    statusFilter !== "todos" ||
+    linkFilter !== "todos" ||
+    propertyFilter !== TODAS_LAS_PROPIEDADES;
 
-  const filteredUsers = useMemo(
-    () =>
-      users.filter(
-        (user) =>
-          (filters.role === ALL || user.role === filters.role) &&
-          (filters.status === ALL || user.status === filters.status) &&
-          (filters.link === ALL || user.link === filters.link) &&
-          (filters.property === ALL || user.propertyIds.includes(filters.property))
-      ),
-    [users, filters]
-  );
-
-  const hasActiveFilters = Object.values(filters).some((value) => value !== ALL);
-
-  function setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
-    setFilters((previous) => ({ ...previous, [key]: value }));
+  function clearFilters() {
+    setRoleFilter("todos");
+    setStatusFilter("todos");
+    setLinkFilter("todos");
+    setPropertyFilter(TODAS_LAS_PROPIEDADES);
   }
 
-  const roleOptions: SelectOption<RoleType | All>[] = [
-    { value: ALL, label: "Todos los roles" },
-    ...(Object.keys(ROLE_LABELS) as RoleType[]).map((role) => ({
-      value: role,
-      label: ROLE_LABELS[role],
-      count: counts.role.get(role) ?? 0,
-    })),
-  ];
-  const statusOptions: SelectOption<ProfileStatus | All>[] = [
-    { value: ALL, label: "Todos los estados" },
-    ...(Object.keys(STATUS_LABELS) as ProfileStatus[]).map((status) => ({
-      value: status,
-      label: STATUS_LABELS[status],
-      count: counts.status.get(status) ?? 0,
-    })),
-  ];
-  const linkOptions: SelectOption<GuestLink | All>[] = [
-    { value: ALL, label: "Todos los vínculos" },
-    ...(Object.keys(GUEST_LINK_LABELS) as GuestLink[]).map((link) => ({
-      value: link,
-      label: GUEST_LINK_LABELS[link],
-      count: counts.link.get(link) ?? 0,
-    })),
-  ];
-  const propertyOptions: SelectOption<string>[] = [
-    { value: ALL, label: "Todas las propiedades" },
-    ...properties.map((property) => ({
-      value: property.id,
-      label: property.name,
-      count: counts.property.get(property.id) ?? 0,
-    })),
-  ];
+  // Todo el filtrado corre aquí, en el navegador, sobre la lista que la página
+  // ya trajo: cambiar de pastilla o de select no dispara ninguna petición.
+  const filteredUsers = useMemo(
+    () =>
+      users.filter((user) => {
+        const scope = user.propertyScope;
+        const coincideLaPropiedad =
+          propertyFilter === TODAS_LAS_PROPIEDADES ||
+          (scope.scope === "properties" &&
+            scope.links.some((link) => link.propertySlug === propertyFilter));
+
+        return (
+          (roleFilter === "todos" || user.role === roleFilter) &&
+          (statusFilter === "todos" || user.status === statusFilter) &&
+          cumpleFiltroDeVinculo(scope, linkFilter) &&
+          coincideLaPropiedad
+        );
+      }),
+    [users, roleFilter, statusFilter, linkFilter, propertyFilter]
+  );
 
   return (
     <div className="flex flex-col gap-10">
@@ -302,34 +452,33 @@ export default function GlobalUsersPanel({
           Usuarios
         </h2>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <FilterSelect
-            id="filter-role"
-            label="Rol"
-            value={filters.role}
-            options={roleOptions}
-            onChange={(value) => setFilter("role", value)}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <FilterPills
+            ariaLabel="Filtrar por rol"
+            options={withCount(ROLE_FILTERS, counts.role, "todos")}
+            value={roleFilter}
+            onChange={setRoleFilter}
           />
-          <FilterSelect
-            id="filter-status"
-            label="Estado"
-            value={filters.status}
-            options={statusOptions}
-            onChange={(value) => setFilter("status", value)}
+          <FilterPills
+            ariaLabel="Filtrar por estado"
+            options={withCount(STATUS_FILTERS, counts.status, "todos")}
+            value={statusFilter}
+            onChange={setStatusFilter}
           />
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <FilterSelect
-            id="filter-link"
             label="Vínculo"
-            value={filters.link}
-            options={linkOptions}
-            onChange={(value) => setFilter("link", value)}
+            options={withCount(LINK_FILTERS, counts.link, "todos")}
+            value={linkFilter}
+            onChange={setLinkFilter}
           />
           <FilterSelect
-            id="filter-property"
-            label="Propiedad"
-            value={filters.property}
-            options={propertyOptions}
-            onChange={(value) => setFilter("property", value)}
+            label="Propiedad asociada"
+            options={withCount(propertyOptions, counts.property, TODAS_LAS_PROPIEDADES)}
+            value={propertyFilter}
+            onChange={setPropertyFilter}
           />
         </div>
 
@@ -340,7 +489,7 @@ export default function GlobalUsersPanel({
           {hasActiveFilters && (
             <button
               type="button"
-              onClick={() => setFilters(INITIAL_FILTERS)}
+              onClick={clearFilters}
               className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-neutral-600 transition-all duration-300 ease-in-out hover:text-neutral-900 active:scale-95"
             >
               <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
@@ -350,15 +499,15 @@ export default function GlobalUsersPanel({
         </div>
 
         <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
-          <table className="w-full min-w-[860px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
               <tr className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500">
-                <th className="px-4 py-3 font-medium">Usuario</th>
+                <th className="px-4 py-3 font-medium">Nombre</th>
+                <th className="px-4 py-3 font-medium">Correo</th>
                 <th className="px-4 py-3 font-medium">Rol</th>
+                <th className="px-4 py-3 font-medium">Propiedades / Reservas</th>
                 <th className="px-4 py-3 font-medium">Estado</th>
-                <th className="px-4 py-3 font-medium">Vínculo</th>
-                <th className="px-4 py-3 font-medium">Propiedades</th>
-                <th className="whitespace-nowrap px-4 py-3 font-medium">Registro</th>
+                <th className="px-4 py-3 font-medium">Fecha de registro</th>
               </tr>
             </thead>
             <tbody>
@@ -371,35 +520,18 @@ export default function GlobalUsersPanel({
               ) : (
                 filteredUsers.map((user) => (
                   <tr key={user.id} className="border-b border-neutral-100 last:border-0">
+                    <td className="px-4 py-3 font-medium text-neutral-900">{user.nombre_completo}</td>
+                    <td className="px-4 py-3 text-neutral-600">{user.email}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-neutral-900">{user.nombre_completo}</div>
-                      <div className="text-xs text-neutral-500">{user.email}</div>
+                      <RoleBadge role={user.role} />
                     </td>
                     <td className="px-4 py-3">
-                      <Badge className={ROLE_BADGE_CLASSES[user.role]}>{ROLE_LABELS[user.role]}</Badge>
+                      <PropertyScopeCell scope={user.propertyScope} />
                     </td>
                     <td className="px-4 py-3">
-                      <Badge className={STATUS_BADGE_CLASSES[user.status]}>
-                        {STATUS_LABELS[user.status]}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge className={LINK_BADGE_CLASSES[user.link]}>{GUEST_LINK_LABELS[user.link]}</Badge>
-                      {user.concludedStays > 0 && (
-                        <div className="mt-1 text-xs text-neutral-500">
-                          {user.concludedStays}{" "}
-                          {user.concludedStays === 1 ? "estancia concluida" : "estancias concluidas"}
-                        </div>
-                      )}
+                      <StatusBadge status={user.status} />
                     </td>
                     <td className="px-4 py-3 text-neutral-600">
-                      {user.propertyIds.length === 0
-                        ? "—"
-                        : user.propertyIds
-                            .map((propertyId) => propertyNames.get(propertyId) ?? "Propiedad")
-                            .join(", ")}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
                       {formatRegistrationDate(user.created_at)}
                     </td>
                   </tr>
