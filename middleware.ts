@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_TOKEN_COOKIE, API_BASE_URL, AUTH_ENDPOINTS, REFRESH_TOKEN_COOKIE } from "@/lib/api/config";
 import { decodeJwt, isTokenExpired, secondsUntilExpiry } from "@/lib/api/jwt";
 import { isInviteOnlyBySlug, TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
+import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
 import type { RoleType, Usuario } from "@/lib/api/types";
 
 // Nota: Next.js 16 renombró esta convención de archivo a `proxy.ts` (con la
@@ -26,8 +27,10 @@ const ADMIN_PREFIX = "/admin";
 // propiedad). Vive bajo /p/<TENANT_ZERO_SLUG>/owner-panel — no confundir con
 // ADMIN_PREFIX: aquel es del administrador de todo PHH, este es del
 // propietario (o admin) de una sola casa. Ver CLAUDE.md, "Migración del
-// panel de administración a owner-panel".
-const OWNER_PANEL_PREFIX = `/p/${TENANT_ZERO_SLUG}/owner-panel`;
+// panel de administración a owner-panel". La ruta sale de
+// `ownerPanelRoutes()` (TS puro, seguro en el Edge Runtime), la misma fuente
+// que usan OwnerNav y los `revalidatePath` del panel.
+const OWNER_PANEL_PREFIX = ownerPanelRoutes(TENANT_ZERO_SLUG).root;
 const OWNER_PANEL_ROLES: RoleType[] = ["holder", "admin"];
 
 // Rutas de una propiedad del marketplace: /p/<slug>, /p/<slug>/reservar,

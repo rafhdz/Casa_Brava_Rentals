@@ -2,13 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { serverFetch, serverFetchAll, toActionError } from "@/lib/api/server";
+import { toDecimalString } from "@/lib/format";
+import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
+import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
 import type { PaymentStatus, Reservation, ReservationStatus, Usuario } from "@/lib/api/types";
 
 type ActionResult = { success: true } | { error: string };
 type QueryResult<T> = { data: T } | { error: string };
 
-// Opciones que alimentan el modal de "Crear reservación".
-export type GuestOption = Pick<Usuario, "id" | "nombre_completo" | "email">;
+// Opciones que alimentan el modal de "Crear reservación". `role` viaja para
+// sugerir `payment_status = "na"` cuando el huésped es un propietario.
+export type GuestOption = Pick<Usuario, "id" | "nombre_completo" | "email" | "role">;
 export type FareTypeOption = { id: string; name: string; surcharge_percentage: number };
 export type PropertySettingsSummary = { nightly_rate: number; security_deposit: number };
 
@@ -32,17 +36,29 @@ export type UpdateReservationInput = {
 };
 
 /**
- * Lista las reservaciones con su desglose de servicios ya anidado.
+ * Lista las reservaciones **de esta propiedad** con su desglose de servicios
+ * ya anidado.
  *
  * Una sola petición trae todo lo que el panel necesita: el backend resuelve
  * los JOIN (huésped, tarifa, spa/comida/vinos con su catálogo) y expone
  * `subtotal_servicios` y `gran_total` ya calculados sobre los precios
  * guardados — el snapshot del momento de contratar, no el catálogo vigente.
  * Las reservaciones con soft delete nunca salen.
+ *
+ * Aislamiento multi-tenant: para un admin/holder la API devuelve las
+ * reservaciones de TODAS las propiedades, así que se pide acotado con
+ * `?property=<slug>`. El filtro local de abajo es defensa en profundidad: si
+ * algún día el backend ignorara el parámetro, el panel de Casa Brava seguiría
+ * sin pintar (ni editar) reservaciones de otra casa.
  */
 export async function getReservations(): Promise<QueryResult<Reservation[]>> {
   try {
-    return { data: await serverFetchAll<Reservation>("/api/reservaciones/reservaciones/") };
+    const reservations = await serverFetchAll<Reservation>("/api/reservaciones/reservaciones/", {
+      searchParams: { property: TENANT_ZERO_SLUG },
+    });
+    return {
+      data: reservations.filter((reservation) => reservation.property.slug === TENANT_ZERO_SLUG),
+    };
   } catch (error) {
     return { error: toActionError(error, "No se pudieron cargar las reservaciones.") };
   }
@@ -54,7 +70,14 @@ export async function getReservations(): Promise<QueryResult<Reservation[]>> {
  * `total_amount` sí viaja desde el cliente en este caso —y solo en este—:
  * cuando quien crea es un admin, el backend respeta el monto manual para
  * permitir descuentos. En el checkout de autoservicio del huésped el total
- * siempre se deriva en el servidor.
+ * siempre se deriva en el servidor. Viaja cuantizado a dos decimales como
+ * string (`toDecimalString`): un float con más decimales —p. ej. tras aplicar
+ * un recargo de 12.5 %— el `DecimalField` de DRF lo rechaza con un 400.
+ *
+ * `property_slug` va explícito aunque el backend caiga a Tenant 0 sin él: la
+ * reservación nunca debe depender de un fallback para aterrizar en la casa
+ * correcta. `payment_status = "na"` solo lo acepta el backend si el huésped
+ * es `holder` (la UI lo sugiere, la regla vive allá).
  */
 export async function createReservation(input: CreateReservationInput): Promise<ActionResult> {
   try {
@@ -62,16 +85,17 @@ export async function createReservation(input: CreateReservationInput): Promise<
       method: "POST",
       body: {
         guest: input.guest_id,
+        property_slug: TENANT_ZERO_SLUG,
         check_in: input.check_in,
         check_out: input.check_out,
         fare_type: input.fare_type_id,
-        total_amount: input.total_amount,
+        total_amount: toDecimalString(input.total_amount),
         status: input.status,
         payment_status: input.payment_status,
       },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(ownerPanelRoutes().reservations);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo crear la reservación.") };
@@ -94,14 +118,18 @@ export async function updateReservation(
   updates: UpdateReservationInput
 ): Promise<ActionResult> {
   try {
-    const { fare_type_id, ...resto } = updates;
+    const { fare_type_id, total_amount, ...resto } = updates;
 
     await serverFetch<Reservation>(`/api/reservaciones/reservaciones/${reservationId}/`, {
       method: "PATCH",
-      body: { ...resto, ...(fare_type_id ? { fare_type: fare_type_id } : {}) },
+      body: {
+        ...resto,
+        ...(fare_type_id ? { fare_type: fare_type_id } : {}),
+        ...(total_amount !== undefined ? { total_amount: toDecimalString(total_amount) } : {}),
+      },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(ownerPanelRoutes().reservations);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo actualizar la reservación.") };
@@ -120,7 +148,7 @@ export async function deleteReservation(reservationId: string): Promise<ActionRe
   try {
     await serverFetch(`/api/reservaciones/reservaciones/${reservationId}/`, { method: "DELETE" });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(ownerPanelRoutes().reservations);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo eliminar la reservación.") };

@@ -31,7 +31,51 @@ export function toNumber(value: string | number | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-// Formatea un monto (number o el string decimal que manda la API) como precio.
+// Convierte un monto (number o el string decimal de DRF) a centavos enteros.
+//
+// Toda suma o multiplicación de dinero se hace en centavos, no en pesos con
+// decimales: `0.1 + 0.2` no da `0.3` en binario, y el error se acumula al
+// sumar cientos de reservaciones. El punto decimal se desplaza en la
+// representación textual (`Number("1.005e2") === 100.5`) en vez de multiplicar
+// por 100 (`1.005 * 100 === 100.49999…`, que redondearía hacia abajo), y el
+// redondeo es "mitad hacia afuera" — el mismo `ROUND_HALF_UP` con el que el
+// backend cuantiza sus totales.
+export function toCents(value: string | number | null | undefined): number {
+  const amount = toNumber(value);
+  const shifted = Number(`${amount}e2`);
+  const exact = Number.isFinite(shifted) ? shifted : amount * 100;
+  return Math.sign(exact) * Math.round(Math.abs(exact));
+}
+
+// Monto con exactamente dos decimales, listo para un `DecimalField` de DRF
+// (`decimal_places=2`). Un number con más decimales —el resultado de una
+// multiplicación por un recargo porcentual, por ejemplo— lo rechaza el
+// backend con un 400; mandarlo ya cuantizado como string evita el problema y
+// cualquier pérdida de precisión en el `JSON.stringify` de un float.
+export function toDecimalString(value: string | number | null | undefined): string {
+  return (toCents(value) / 100).toFixed(2);
+}
+
+const MONEY_FORMAT = new Intl.NumberFormat("es-MX", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+// Formatea un monto (number o el string decimal que manda la API) como precio,
+// con separador de miles: `$1,284,500.00`.
 export function formatMoney(value: string | number | null | undefined): string {
-  return `$${toNumber(value).toFixed(2)}`;
+  return `$${MONEY_FORMAT.format(toCents(value) / 100)}`;
+}
+
+const INTEGER_FORMAT = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 });
+
+// Formatea un conteo con separador de miles, redondeado: `1284.4` → `"1,284"`.
+export function formatInteger(value: number): string {
+  return INTEGER_FORMAT.format(Number.isFinite(value) ? value : 0);
+}
+
+// Formatea una razón (0–1) como porcentaje: `0.625` → `"62.5%"`.
+export function formatPercent(ratio: number, fractionDigits = 1): string {
+  const safe = Number.isFinite(ratio) ? ratio : 0;
+  return `${(safe * 100).toFixed(fractionDigits)}%`;
 }

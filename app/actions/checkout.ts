@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { serverFetch, toActionError, ApiError } from "@/lib/api/server";
 import { RESERVATION_REQUIRED_ERROR } from "@/lib/checkout-errors";
 import { getActiveReservation } from "@/lib/reservations";
+import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
 import type { CartItem } from "@/lib/cart-types";
 import type { Reservation } from "@/lib/api/types";
 
@@ -42,7 +43,7 @@ export async function checkoutStay(input: CheckoutStayInput): Promise<ActionResu
       },
     });
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(ownerPanelRoutes().reservations);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, "No se pudo crear la reservación.") };
@@ -160,7 +161,7 @@ export async function checkoutCartServices(items: CartItem[]): Promise<ActionRes
       }
     }
 
-    revalidatePath("/p/casa-brava/owner-panel/reservations");
+    revalidatePath(ownerPanelRoutes().reservations);
     return { success: true };
   } catch (error) {
     await compensar(creados);

@@ -32,6 +32,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.utils import timezone
 
+from pagos.models import PaymentStatus
 from propiedades.models import Property, PropertyAccessGrant, PropertyAccessType, PropertySettings
 from reservaciones.models import (
     ESTADOS_ACTIVOS,
@@ -95,6 +96,11 @@ class AccesoRestringidoError(ReglaDeNegocioError):
     """La propiedad es de acceso por invitación y el huésped no tiene un
     `PropertyAccessGrant` vigente. Se traduce a 403, no a 409/400 — no es una
     carrera perdida ni un dato inválido, es una operación no autorizada."""
+
+
+class ExencionInvalidaError(ReglaDeNegocioError):
+    """Se intentó marcar como exenta de cobro (`payment_status = "na"`) la
+    estancia de alguien que no es propietario. Es un dato inválido: 400."""
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +235,22 @@ def _verificar_acceso_a_propiedad(propiedad, guest):
         )
 
 
+def _validar_exencion(guest, payment_status):
+    """
+    Estancias exentas: `payment_status = "na"` solo aplica a un propietario
+    (rol `holder`) hospedándose en su propia casa — no hay nada que cobrarle.
+
+    El frontend lo *sugiere* al elegir un huésped `holder` en el panel, pero
+    la regla vive aquí: sin este guard, cualquier reservación se podría sacar
+    del GMV de la plataforma con solo mandar `"na"` desde el cliente.
+    """
+    if payment_status == PaymentStatus.NO_APLICA and not guest.es_holder:
+        raise ExencionInvalidaError(
+            "Solo la estancia de un propietario puede marcarse como exenta de cobro "
+            "(«No aplica»)."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Reservaciones
 # ---------------------------------------------------------------------------
@@ -255,8 +277,15 @@ def crear_reservacion(
     explícito (el panel admin permite ajustar el monto a mano, p. ej. para un
     descuento); en el checkout de autoservicio del huésped se omite y el total
     se recalcula aquí.
+
+    `payment_status` omitido: la estancia de un propietario (`holder`) nace
+    exenta (`"na"`); la de cualquier otro huésped, `pendiente` (el default
+    del modelo). Si viene explícito, `"na"` solo se acepta para un `holder`.
     """
     validar_fechas(check_in, check_out)
+    if payment_status is None and guest.es_holder:
+        payment_status = PaymentStatus.NO_APLICA
+    _validar_exencion(guest, payment_status)
     if propiedad is None:
         propiedad = _propiedad_tenant_cero()
     _verificar_acceso_a_propiedad(propiedad, guest)
@@ -320,6 +349,8 @@ def actualizar_reservacion(reservation_id, **cambios):
     """
     propiedad_bloqueada = False
     reservacion = Reservation.objects.select_for_update().get(pk=reservation_id)
+    if "payment_status" in cambios:
+        _validar_exencion(reservacion.guest, cambios["payment_status"])
 
     status_anterior = reservacion.status
     status_efectivo = cambios.get("status", status_anterior)

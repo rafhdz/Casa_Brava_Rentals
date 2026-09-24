@@ -165,15 +165,15 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
 
 | Función | Reemplaza a | Qué protege |
 | --- | --- | --- |
-| `crear_reservacion` | `checkoutStay` + `createReservation` | Bloquea la fila de `Property` reservada antes de verificar solapamiento (acotado a esa propiedad) y valida `INVITE_ONLY` antes de tocar la base |
-| `actualizar_reservacion` | `updateReservation` | Solapamiento al confirmar, re-adquisición al reactivar, liberación al cancelar — todo acotado a `reservacion.property` |
+| `crear_reservacion` | `checkoutStay` + `createReservation` | Bloquea la fila de `Property` reservada antes de verificar solapamiento (acotado a esa propiedad), valida `INVITE_ONLY` antes de tocar la base y resuelve la exención de cobro de un propietario (regla 6) |
+| `actualizar_reservacion` | `updateReservation` | Solapamiento al confirmar, re-adquisición al reactivar, liberación al cancelar — todo acotado a `reservacion.property` —, y rechaza exentar a quien no es propietario |
 | `eliminar_reservacion` | `deleteReservation` | Soft delete + liberación de inventario |
 | `reservar_bloque_spa` | `book_spa_slot()` | `select_for_update()` sobre el bloque de `SpaAvailability` |
 | `liberar_spa_booking` | `release_spa_booking()` | Compensación: borra la reserva **y** devuelve el bloque |
 | `liberar_slots_de_reservacion` | `release_spa_slots_for_reservation()` | Cancelar libera horarios sin borrar historial |
 | `readquirir_slots_de_reservacion` | `reacquire_spa_slots_for_reservation()` | Reactivar una cancelada no puede pisar lo que otro ya tomó |
 
-### Las cinco reglas que hay que conocer antes de tocar este archivo
+### Las seis reglas que hay que conocer antes de tocar este archivo
 
 1. **Orden de bloqueo fijo**: `Property` (la reservada) → `Reservation` →
    `SpaAvailability` (recorrida ordenada por masajista, fecha, hora). Dos
@@ -218,6 +218,18 @@ pasa por este módulo, que abre la transacción y toma los bloqueos.
    explícita en el payload, se usa el Tenant 0 (`_propiedad_tenant_cero`,
    slug `casa-brava`) como fallback de retrocompatibilidad — es la única
    propiedad del MVP actual, y hoy es `INVITE_ONLY` (ver §9).
+6. **Estancias exentas (`payment_status = "na"`, "No aplica")**: la estancia
+   de un propietario (rol `holder`) en su propia casa no se cobra.
+   `crear_reservacion` la crea exenta si el huésped es `holder` y el payload no
+   trae `payment_status`; si lo trae explícito, se respeta (el admin puede
+   decidir cobrarle). `_validar_exencion` rechaza `"na"` —al crear y al
+   editar— para cualquier huésped que no sea `holder` (`ExencionInvalidaError`
+   → 400): sin ese guard, cualquier reservación se podría sacar del GMV de la
+   plataforma con solo mandar `"na"`. `pagos.services.derivar_estado_de_pago`
+   nunca deriva `"na"` ni lo revierte: la exención la declara el admin sobre la
+   reservación, y ningún movimiento la pisa en silencio. Por lo mismo, un
+   `Payment` individual no puede llevar `status = "na"`
+   (`PaymentSerializer.validate_status` → 400).
 
 ### Montos
 
@@ -232,6 +244,10 @@ recalculan contra el catálogo vigente.
 Un choque de fechas o un bloque ya tomado responde **409 Conflict**, no 400: la
 petición estaba bien formada, lo que se perdió fue la carrera contra otro
 usuario. El mensaje viaja en español, listo para mostrarse.
+
+Marcar como exenta (`payment_status = "na"`) la estancia de alguien que no es
+propietario responde **400** con `{"detail": ...}` (`ExencionInvalidaError`,
+un `ReglaDeNegocioError` más): es un dato inválido, no una carrera.
 
 Reservar una propiedad `INVITE_ONLY` sin `PropertyAccessGrant` responde
 **403 Forbidden** (`AccesoRestringidoError` → `PermissionDenied`), no 400 ni
@@ -302,7 +318,7 @@ corto a dejar el panel sin acceso).
 /api/servicios/spa/disponibilidad/       Bloques (?masseuse=&desde=&hasta=)
 /api/servicios/comida/disponibilidad/    Días habilitados (?desde=&hasta=)
 
-/api/reservaciones/reservaciones/        Estadías (?status=&payment_status=) — payload/respuesta multi-tenant, §9
+/api/reservaciones/reservaciones/        Estadías (?property=<slug>&status=&payment_status=) — multi-tenant, §9
 /api/reservaciones/reservaciones/ocupadas/   Rangos activos (pendiente + confirmada), para el calendario
 /api/reservaciones/spa/                  Sesiones de spa contratadas
 /api/reservaciones/comida/               Servicios de cocina contratados
@@ -330,7 +346,9 @@ los datos existentes migren sin reescribir llaves). Las diferencias son:
    simulado pero incapaz de registrar un anticipo, un segundo cargo o un
    reembolso parcial — justo los casos que el estado `parcial` ya contemplaba.
    La reservación conserva su estado agregado; la tabla nueva guarda cada
-   movimiento que lo produjo, y el estado se deriva de ellos.
+   movimiento que lo produjo, y el estado se deriva de ellos. El enum suma un
+   quinto valor que Supabase no tenía, `na` ("No aplica"): estancia exenta de
+   un propietario — se declara, no se deriva (§5, regla 6).
 3. **Las funciones plpgsql son ahora servicios de Python** (§5). Mismo
    comportamiento, misma estrategia de bloqueo.
 4. **RLS pasa a la capa de aplicación** (§6).
@@ -421,6 +439,13 @@ montado con prefijo vacío en `propiedades/urls.py` — **después** de los dem�
   no confundir con el campo nuevo `grand_total` (columna, todavía no poblada
   con el desglose de servicios).
 
+**Filtro por propiedad** — `?property=<slug>` acota la lista a una sola
+propiedad. Es lo que usa el panel de gestión de cada casa
+(`/p/<slug>/owner-panel/reservations`) para no mezclar reservaciones de otras
+propiedades: sin él, un admin/holder recibe las de **todas**. Se aplica encima
+del alcance por rol, así que no amplía nada (un huésped sigue viendo solo las
+suyas).
+
 **Payload de alta** (`ReservationCreateSerializer`) — dos campos nuevos,
 opcionales y equivalentes entre sí:
 
@@ -450,7 +475,7 @@ huéspedes reservando la misma propiedad sí, exactamente como antes.
 
 `propiedades/admin.py` registra los tres modelos nuevos — es, por ahora, la
 **única** forma de dar de alta o editar una propiedad, un proveedor o un
-grant (no hay UI en `/admin/catalogos` del frontend para esto todavía):
+grant (no hay UI en el frontend para esto todavía):
 
 * `SupplierProfileAdmin`: `business_name`, `user`, `commission_rate`,
   `is_active`; busca por `business_name` y correo del usuario.
@@ -470,7 +495,15 @@ grant (no hay UI en `/admin/catalogos` del frontend para esto todavía):
 * **Administración de disponibilidad.** Los bloques de spa y los días de cocina
   se cargan con `seed_demo` o desde el admin de Django; no hay un flujo dedicado.
   Los catálogos en sí (tarifas, masajistas, menús y vinos) ya se administran
-  desde `/admin/catalogos` en el frontend; `WinePackage` sigue siendo la
-  excepción y solo se edita desde el admin de Django.
+  desde `/p/casa-brava/owner-panel/catalogos` en el frontend; `WinePackage`
+  sigue siendo la excepción y solo se edita desde el admin de Django.
+* **Alcance de lectura del `holder` por propiedad.** Hoy un `holder` lee las
+  reservaciones de *todas* las propiedades (igual que antes del modelo
+  multi-tenant). El panel de cada casa ya pide solo las suyas
+  (`?property=<slug>`), pero eso es acotamiento de la vista, no autorización:
+  cerrar la lectura cruzada exige ligar cada `holder` a sus propiedades
+  (`SupplierProfile` → `Property`) y filtrar por ahí en `get_queryset()`. En
+  el seed, el dueño de Casa Brava es el admin, no el `holder`, así que ese
+  cambio necesita primero una decisión de modelo de datos.
 * **Migración de datos.** No hay script que traiga las filas existentes de
   Supabase; el esquema está listo para recibirlas, pero el volcado es manual.

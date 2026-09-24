@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { serverFetch, toActionError } from "@/lib/api/server";
+import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
 import type {
   FareType,
   FoodMenu,
@@ -30,8 +31,6 @@ import type {
 
 export type CatalogActionResult = { success: true } | { error: string };
 
-const CATALOGS_PATH = "/p/casa-brava/owner-panel/catalogos";
-
 // Endpoints de cada catálogo. Agrupados aquí para que la ruta de un catálogo
 // se escriba una sola vez y no se disperse entre sus tres acciones.
 const ENDPOINTS = {
@@ -56,7 +55,7 @@ async function escribirCatalogo(
   try {
     await serverFetch(path, options);
 
-    revalidatePath(CATALOGS_PATH);
+    revalidatePath(ownerPanelRoutes().catalogs);
     return { success: true };
   } catch (error) {
     return { error: toActionError(error, fallback) };

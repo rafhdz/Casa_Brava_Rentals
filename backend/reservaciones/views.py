@@ -153,6 +153,13 @@ class ReservationViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(guest=usuario)
 
         params = self.request.query_params
+        # Acota la lista a una sola propiedad (por slug). Es lo que usa el
+        # panel de gestión de cada casa para no mezclar reservaciones de otras
+        # propiedades del marketplace: sin él, un admin/holder recibe las de
+        # todas. No amplía nada — se aplica encima del alcance por rol de
+        # arriba, así que un huésped sigue viendo solo las suyas.
+        if propiedad := params.get("property"):
+            queryset = queryset.filter(property__slug=propiedad)
         if estado := params.get("status"):
             queryset = queryset.filter(status=estado)
         if payment_status := params.get("payment_status"):

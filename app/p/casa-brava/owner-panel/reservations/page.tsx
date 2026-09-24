@@ -1,4 +1,4 @@
-import { serverFetchAll } from "@/lib/api/server";
+import { nullOnApiError, serverFetchAll } from "@/lib/api/server";
 import { toNumber } from "@/lib/format";
 import { getReservations } from "@/app/p/casa-brava/owner-panel/reservations/actions";
 import ReservationsTable from "@/components/ReservationsTable";
@@ -6,11 +6,13 @@ import OwnerNav from "@/components/OwnerNav";
 import type { FareType, PropertySettings, Usuario } from "@/lib/api/types";
 
 export default async function OwnerPanelReservationsPage() {
+  // `nullOnApiError` y no un `.catch(() => null)` a secas: un `redirect()` de
+  // sesión expirada tiene que propagarse, no convertirse en "backend caído".
   const [reservationsResult, guests, fareTypes, settings] = await Promise.all([
     getReservations(),
-    serverFetchAll<Usuario>("/api/usuarios/").catch(() => null),
-    serverFetchAll<FareType>("/api/propiedades/tarifas/").catch(() => null),
-    serverFetchAll<PropertySettings>("/api/propiedades/configuracion/").catch(() => null),
+    serverFetchAll<Usuario>("/api/usuarios/").catch(nullOnApiError),
+    serverFetchAll<FareType>("/api/propiedades/tarifas/").catch(nullOnApiError),
+    serverFetchAll<PropertySettings>("/api/propiedades/configuracion/").catch(nullOnApiError),
   ]);
 
   const propertySettings = settings?.[0] ?? null;
@@ -34,7 +36,14 @@ export default async function OwnerPanelReservationsPage() {
       ) : (
         <ReservationsTable
           reservations={"data" in reservationsResult ? reservationsResult.data : []}
-          guests={guests.map(({ id, nombre_completo, email }) => ({ id, nombre_completo, email }))}
+          // Solo lo que el modal necesita: `role` decide la sugerencia de
+          // estancia exenta (`payment_status = "na"`) para un propietario.
+          guests={guests.map(({ id, nombre_completo, email, role }) => ({
+            id,
+            nombre_completo,
+            email,
+            role,
+          }))}
           // Los decimales llegan como string desde DRF; se convierten aquí para
           // que el modal de creación calcule el total sugerido con números.
           fareTypes={fareTypes.map((fare) => ({

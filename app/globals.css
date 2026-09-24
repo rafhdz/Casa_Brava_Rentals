@@ -44,3 +44,16 @@ body {
     transform: scale(1);
   }
 }
+
+/* Panel lateral (drawer) — lo usa el simulador de Revenue Management de
+   /supplier. Mismo lenguaje que modal-in: entra en 200ms, sin rebote. */
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

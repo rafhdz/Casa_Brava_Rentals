@@ -133,11 +133,11 @@ Casa_Brava_Rentals/
 │   │   └── catalogos/
 │   │       ├── page.tsx          Panel: tarifas, masajistas, menús y vinos
 │   │       └── actions.ts        CRUD de los cuatro catálogos
-│   ├── supplier/                 Portal de anfitrión (esqueleto, sin escritura real)
+│   ├── supplier/                 Portal de anfitrión (sin escritura real)
 │   │   ├── layout.tsx            Monta SupplierNav
-│   │   └── page.tsx              "Mis propiedades", Stripe Connect y ocupación (mock)
+│   │   └── page.tsx              "Mis propiedades": canal en vivo de Casa Brava, simulador de tarifas, métricas
 │   ├── admin/
-│   │   └── page.tsx              Panel de Control PHH: usuarios de todo el sistema, solo lectura + filtros
+│   │   └── page.tsx              Panel de Control PHH: KPIs de plataforma (GMV, take-rate, ocupación, cohortes) + usuarios
 │   └── actions/
 │       ├── auth.ts               Iniciar sesión, registrarse, cerrar sesión
 │       └── checkout.ts           Pagar la estadía y los servicios (Casa Brava)
@@ -161,7 +161,11 @@ Casa_Brava_Rentals/
 │   ├── cart-types.ts             Tipos del carrito
 │   ├── checkout-errors.ts        Mensaje compartido servidor/cliente
 │   ├── reservations.ts           Reservación activa más reciente del huésped
-│   └── format.ts                 Formato de fechas, horas y dinero
+│   ├── owner-panel-routes.ts     ownerPanelRoutes(): rutas del panel de gestión (única fuente)
+│   ├── platform-metrics.ts       KPIs de /admin calculados sobre datos reales (funciones puras)
+│   ├── revenue-simulator.ts      Motor del simulador de Revenue Management de /supplier
+│   ├── commission-rates.ts       Comisión PHH (10 %) y referencia Airbnb (16 %)
+│   └── format.ts                 Formato de fechas, horas y dinero (centavos: toCents / toDecimalString)
 │
 ├── middleware.ts                 Protección de rutas y refresco de sesión
 ├── public/                       Imágenes e íconos
@@ -218,7 +222,10 @@ despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
 | **Agregar/editar/quitar una propiedad del directorio mock** | [lib/mock/marketplace-data.ts](lib/mock/marketplace-data.ts) — array `PROPERTIES` |
 | Formulario de reservación mock (propiedades sin backend) | [components/MockReservarForm.tsx](components/MockReservarForm.tsx) |
 | Pestañas del portal de anfitrión | [components/SupplierNav.tsx](components/SupplierNav.tsx) |
-| Tabla "Mis propiedades" del portal de anfitrión | [components/SupplierPropertiesTable.tsx](components/SupplierPropertiesTable.tsx) |
+| Tabla "Mis propiedades" del portal de anfitrión (canal de Casa Brava, botón al panel, "Simular tarifas") | [components/SupplierPropertiesTable.tsx](components/SupplierPropertiesTable.tsx) |
+| Simulador de Revenue Management (drawer: escenario, proyección anual, ahorro vs. Airbnb) | [components/RevenueSimulatorDrawer.tsx](components/RevenueSimulatorDrawer.tsx) |
+| Multiplicadores, calendario de temporadas y supuestos del simulador | [lib/revenue-simulator.ts](lib/revenue-simulator.ts) |
+| Tarjeta de métrica (KPI) compartida por `/admin`, `/supplier` y el simulador | [components/KpiCard.tsx](components/KpiCard.tsx) |
 | Carrusel de fotos (zoom, auto-avance, flechas) | [components/Carousel.tsx](components/Carousel.tsx) |
 | Lista de amenidades | [components/AmenitiesList.tsx](components/AmenitiesList.tsx) |
 | Tarjetas de servicios de la fachada de Casa Brava | [components/ServiceCard.tsx](components/ServiceCard.tsx) |
@@ -235,7 +242,9 @@ despachador de Navbar/Footer, guards de `middleware.ts` por `accessType`).
 | Pestañas del owner-panel de Casa Brava (Usuarios / Reservaciones / Catálogos) | [components/OwnerNav.tsx](components/OwnerNav.tsx) |
 | Qué campos y textos tiene cada catálogo del owner-panel | [components/CatalogsView.tsx](components/CatalogsView.tsx) |
 | Tabla y modales genéricos de un catálogo | [components/CatalogTable.tsx](components/CatalogTable.tsx) |
-| Tabla y filtros del Panel de Control PHH (`/admin`, usuarios de todo el sistema) | [components/GlobalUsersPanel.tsx](components/GlobalUsersPanel.tsx) |
+| KPIs, tabla y filtros (Rol, Estado, Vínculo, Propiedad) del Panel de Control PHH (`/admin`) | [components/GlobalUsersPanel.tsx](components/GlobalUsersPanel.tsx) |
+| Cómo se calculan GMV, take-rate, ocupación y cohortes de `/admin` | [lib/platform-metrics.ts](lib/platform-metrics.ts) |
+| Porcentaje de comisión de PHH / referencia de Airbnb | [lib/commission-rates.ts](lib/commission-rates.ts) |
 | Botón "Volver" | [components/BackButton.tsx](components/BackButton.tsx) |
 
 **Estilo general:** todo es Tailwind CSS v4 escrito directamente en las clases. No hay archivo `tailwind.config.js`; los tokens se definen con `@theme` en [app/globals.css](app/globals.css). La paleta es escala de grises (`neutral-*`) con negro para los botones principales, y el diseño se escribe **mobile-first**.
@@ -299,7 +308,7 @@ Sin sesión, cualquier ruta protegida redirige a `/login`. Con sesión pero sin 
 | Rol | Qué puede hacer |
 | --- | --- |
 | **Administrador** (`admin`) | Todo: el Panel de Control de PHH (`/admin`) **y** el panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) |
-| **Propietario** (`holder`) | Ve la experiencia de huésped y además entra al panel de gestión de Casa Brava; en la API puede consultar todos los registros, pero no modificarlos |
+| **Propietario** (`holder`) | Ve la experiencia de huésped y además entra al panel de gestión de Casa Brava; en la API puede consultar todos los registros, pero no modificarlos. Sus estancias nacen **exentas de cobro** (pago "No aplica") |
 | **Huésped** (`guest`) | Reserva y consulta lo suyo |
 
 Quien se registra por su cuenta en `/register` siempre queda como **huésped**. Crear administradores o propietarios solo se puede desde el panel de gestión de Casa Brava (`/p/casa-brava/owner-panel`) — el Panel de Control de PHH (`/admin`) solo lista y filtra, no crea ni edita.
@@ -351,7 +360,9 @@ movió para dejar `/admin` libre como panel universal de PHH (ver más abajo).
 #### Reservaciones (`/p/casa-brava/owner-panel/reservations`)
 
 - Tabla con huésped, fechas, tarifa, servicios contratados (íconos), monto y los dos estados.
-- **Dos estados independientes**: el de la reserva (`Pendiente`, `Confirmada`, `Cancelada`, `Finalizada`) y el del cobro (`Pendiente`, `Parcial`, `Completado`, `Reembolsado`). Se cambian por separado, para poder registrar un anticipo sobre una reserva todavía pendiente.
+- **Dos estados independientes**: el de la reserva (`Pendiente`, `Confirmada`, `Cancelada`, `Finalizada`) y el del cobro (`Pendiente`, `Parcial`, `Completado`, `Reembolsado`, `No aplica`). Se cambian por separado, para poder registrar un anticipo sobre una reserva todavía pendiente.
+- **Solo reservaciones de Casa Brava**: aunque el backend ya conoce otras propiedades, esta tabla pide y muestra únicamente las de esta casa.
+- **Estancias de propietario**: al crear una reservación para alguien con rol Propietario, el pago se sugiere solo como **No aplica** (estancia exenta: no se cobra ni suma al GMV). Se puede cambiar a mano; para un huésped normal la opción ni aparece, y el backend la rechaza si alguien la manda.
 - **Editar** abre el desglose de lo contratado (cada masaje, comida y vino con su importe) más estadía, subtotal de servicios y gran total.
 - **Crear** sugiere el monto a partir de fechas y tarifa, pero lo deja editable por si hay un descuento.
 - **Eliminar** pide doble confirmación. No borra de verdad: marca la reserva como eliminada y libera los horarios de spa, conservando el historial de lo contratado.
@@ -370,23 +381,54 @@ Lo que se ofrece en Casa Brava, en cuatro pestañas: **tipos de tarifa**, **masa
 ### Panel de Control PHH (`/admin`)
 
 Panel universal del administrador de Parras Home Hub, accesible solo con rol
-`admin`. Una sola pantalla: usuarios de todo el sistema, con columnas
-Nombre/Correo/Rol/Estado/Fecha de registro y filtros por rol y por estado.
+`admin`. Dos bloques:
 
-- **Es de solo lectura** — no crea, edita ni elimina. El backend sigue siendo
-  de una sola propiedad, así que hoy consume el mismo `/api/usuarios/` que ya
-  administra por completo el panel de Casa Brava; hacer CRUD dos veces sobre
-  la misma colección sería una segunda fuente de verdad para la misma
-  escritura. Cuando el backend modele varias propiedades, este panel gana su
-  propio endpoint consolidado.
-- Los filtros son instantáneos: se aplican en el navegador sobre la lista ya
-  cargada, sin volver a pedirle nada al backend por cada clic.
+- **Métricas de plataforma**, calculadas en el servidor con datos reales del
+  backend (usuarios, reservaciones y propiedades):
+  - **GMV histórico** — suma del gran total de las reservaciones confirmadas o
+    finalizadas, sin contar las estancias exentas de propietario.
+  - **Take-rate capturado (10 %)** — la comisión de PHH proyectada sobre ese
+    GMV (el backend todavía no la liquida).
+  - **Ocupación agregada del año** — noches reservadas ÷ noches disponibles de
+    todas las propiedades activas.
+  - **Cohortes de huéspedes** — recurrentes (más de una estancia concluida) y
+    nuevos registros de los últimos 30 días.
+- **Usuarios** de todo el sistema, con cuatro filtros instantáneos: **Rol**,
+  **Estado**, **Vínculo** (recurrente / con reservación / sin reservación) y
+  **Propiedad** (en qué casas tiene reservaciones). Se aplican en el navegador
+  sobre la lista ya cargada, sin volver a pedirle nada al backend por cada
+  cambio.
+
+- **Es de solo lectura** — no crea, edita ni elimina. Hoy consume el mismo
+  `/api/usuarios/` que ya administra por completo el panel de Casa Brava;
+  hacer CRUD dos veces sobre la misma colección sería una segunda fuente de
+  verdad para la misma escritura.
+- Al navegador solo baja lo que la tabla muestra: nada de teléfono, fecha de
+  nacimiento ni identificación, ni el detalle de las reservaciones.
+
+### Portal de anfitrión (`/supplier`)
+
+Público (no pide sesión). Lista las propiedades del directorio con una acción
+real por fila — ya no hay botones que solo muestren "próximamente":
+
+- **Casa Brava**: la página le pregunta al backend en ese momento si responde;
+  de ahí salen el estado **En línea · Conectado a Django** (o **Sin conexión**),
+  su tarifa base real y el botón **Panel de gestión**.
+- **Propiedades de demostración**: el botón **Simular tarifas** abre un panel
+  lateral donde se combinan temporada, tipo de día, ocupación y eventos sobre la
+  tarifa base, con la proyección de ocupación del año y el ahorro frente a la
+  comisión de Airbnb (10 % PHH contra 16 %). Es una simulación: no guarda nada.
+- Arriba, tres métricas calculadas: ocupación promedio proyectada, RevPAR
+  estimado e índice de respuesta operativa (qué parte del portafolio está en
+  línea).
 
 ---
 
 ## 8. Cosas que conviene saber al tocar el código
 
-**Los precios llegan como texto, no como número.** El backend manda `"4500.00"` en vez de `4500` para no perder precisión con los decimales. Antes de sumar o multiplicar hay que convertirlos con `toNumber()` de [lib/format.ts](lib/format.ts); para mostrarlos, `formatMoney()`. La conversión se hace en la página, para que los componentes visuales sigan recibiendo números.
+**Los precios llegan como texto, no como número.** El backend manda `"4500.00"` en vez de `4500` para no perder precisión con los decimales. Antes de sumar o multiplicar hay que convertirlos con `toNumber()` de [lib/format.ts](lib/format.ts); para mostrarlos, `formatMoney()`. La conversión se hace en la página, para que los componentes visuales sigan recibiendo números. Para **sumar dinero** (totales, KPIs) se trabaja en centavos con `toCents()`, y para **mandarlo** al backend se usa `toDecimalString()`, que lo deja con dos decimales exactos.
+
+**Las rutas del panel de gestión salen de `ownerPanelRoutes()`** ([lib/owner-panel-routes.ts](lib/owner-panel-routes.ts)). No escribir `"/p/casa-brava/owner-panel/..."` a mano: el middleware, las pestañas, el portal de anfitrión y los `revalidatePath` usan esa misma función.
 
 **Las listas del backend vienen de 50 en 50.** Para traer una colección completa hay que usar `serverFetchAll` (no `serverFetch`), que va siguiendo las páginas. Si se lee solo la primera, faltan datos **sin ningún error visible** — por ejemplo, desaparecerían los días de spa más lejanos.
 

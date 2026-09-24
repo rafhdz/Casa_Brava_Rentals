@@ -422,6 +422,63 @@ class ComidaYVinosTests(BaseDominio):
             )
 
 
+
+class CatalogosEnUsoTests(BaseDominio):
+    """Borrar una masajista, un menú o un vino con historial responde 409.
+
+    El panel de catálogos del owner-panel muestra ese mensaje en un toast y
+    deja el modal abierto; esto fija el contrato del que depende (la tarifa
+    ya la cubre `propiedades.tests`). Se prueba incluso con la reservación en
+    soft delete: el historial sigue existiendo y sigue protegiendo al catálogo.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+        reservacion = services.crear_reservacion(
+            guest=self.huesped,
+            check_in=HOY + timedelta(days=1),
+            check_out=HOY + timedelta(days=5),
+            fare_type=self.tarifa,
+            status=ReservationStatus.CONFIRMADA,
+        )
+        dia = HOY + timedelta(days=2)
+        SpaAvailability.objects.create(
+            masseuse=self.masajista, available_date=dia, available_time=time(10, 0)
+        )
+        services.reservar_bloque_spa(
+            reservacion=reservacion,
+            masseuse_id=self.masajista.pk,
+            date=dia,
+            time=time(10, 0),
+            price_per_hour=Decimal("600.00"),
+        )
+        FoodAvailability.objects.create(available_date=dia)
+        self.menu = FoodMenu.objects.create(
+            meal_type=MealType.CENA, name="Cena", price_per_person=Decimal("450.00")
+        )
+        services.crear_food_booking(
+            reservacion=reservacion, date=dia, meal_type=MealType.CENA, menu=self.menu, guests_count=2
+        )
+        self.vino = Wine.objects.create(name="Tinto", type="Tinto", price=Decimal("500.00"), stock=5)
+        services.crear_wine_order(reservacion=reservacion, lineas=[{"wine": self.vino, "quantity": 1}])
+        services.eliminar_reservacion(reservacion.pk)
+
+    def _assert_protegido(self, url_name, objeto):
+        respuesta = self.client.delete(reverse(url_name, args=[objeto.pk]))
+        self.assertEqual(respuesta.status_code, 409, respuesta.data)
+        self.assertIn("detail", respuesta.data)
+        self.assertTrue(type(objeto).objects.filter(pk=objeto.pk).exists())
+
+    def test_masajista_con_historial_responde_409(self):
+        self._assert_protegido("masajista-detail", self.masajista)
+
+    def test_menu_con_historial_responde_409(self):
+        self._assert_protegido("food-menu-detail", self.menu)
+
+    def test_vino_con_historial_responde_409(self):
+        self._assert_protegido("wine-detail", self.vino)
+
 class EstadoDePagoTests(BaseDominio):
     def setUp(self):
         self.reservacion = services.crear_reservacion(
@@ -455,6 +512,63 @@ class EstadoDePagoTests(BaseDominio):
         # La estadía está cubierta, pero los vinos no: sigue parcial.
         self.assertEqual(self.reservacion.payment_status, PaymentStatus.PARCIAL)
 
+
+
+class ExencionDePropietarioTests(BaseDominio):
+    """`payment_status = "na"`: la estancia de un propietario en su propia
+    casa no se cobra. El panel lo sugiere; estas pruebas fijan la regla real."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.propietario = Usuario.objects.create_user(
+            email="holder@test.com",
+            password="changeme123",
+            first_name="Carlos",
+            apellido_paterno="Dueño",
+            role=RoleType.HOLDER,
+            status=ProfileStatus.ACTIVO,
+        )
+        PropertyAccessGrant.objects.create(property=cls.propiedad, user=cls.propietario)
+
+    def _reservar(self, guest, dia_inicio, **extra):
+        return services.crear_reservacion(
+            guest=guest,
+            check_in=HOY + timedelta(days=dia_inicio),
+            check_out=HOY + timedelta(days=dia_inicio + 2),
+            fare_type=self.tarifa,
+            **extra,
+        )
+
+    def test_la_estancia_de_un_propietario_nace_exenta(self):
+        reservacion = self._reservar(self.propietario, 200)
+        self.assertEqual(reservacion.payment_status, PaymentStatus.NO_APLICA)
+
+    def test_el_admin_puede_cobrarle_a_un_propietario_si_lo_indica(self):
+        reservacion = self._reservar(
+            self.propietario, 205, payment_status=PaymentStatus.PENDIENTE
+        )
+        self.assertEqual(reservacion.payment_status, PaymentStatus.PENDIENTE)
+
+    def test_la_estancia_de_un_huesped_no_puede_ser_exenta(self):
+        with self.assertRaises(services.ExencionInvalidaError):
+            self._reservar(self.huesped, 210, payment_status=PaymentStatus.NO_APLICA)
+        self.assertFalse(Reservation.objects.filter(guest=self.huesped).exists())
+
+    def test_no_se_puede_exentar_despues_a_un_huesped(self):
+        reservacion = self._reservar(self.huesped, 215)
+        with self.assertRaises(services.ExencionInvalidaError):
+            services.actualizar_reservacion(
+                reservacion.pk, payment_status=PaymentStatus.NO_APLICA
+            )
+        reservacion.refresh_from_db()
+        self.assertEqual(reservacion.payment_status, PaymentStatus.PENDIENTE)
+
+    def test_un_movimiento_no_revierte_la_exencion(self):
+        reservacion = self._reservar(self.propietario, 220)
+        registrar_pago(reservacion=reservacion, amount=Decimal("100.00"))
+        reservacion.refresh_from_db()
+        self.assertEqual(reservacion.payment_status, PaymentStatus.NO_APLICA)
 
 class ApiReservacionesTests(BaseDominio):
     """Contrato HTTP: autenticación, alcance por rol y códigos de error."""
@@ -647,6 +761,76 @@ class ApiReservacionesTests(BaseDominio):
         self.assertEqual(respuesta.status_code, 201, respuesta.data)
         self.assertEqual(respuesta.data["property"]["slug"], "casa-brava")
 
+
+    def test_exentar_a_un_huesped_desde_la_api_responde_400(self):
+        self._autenticar(self.admin)
+        respuesta = self.client.post(
+            self.url,
+            {
+                "guest": str(self.huesped.pk),
+                "check_in": str(HOY + timedelta(days=140)),
+                "check_out": str(HOY + timedelta(days=142)),
+                "fare_type": str(self.tarifa.pk),
+                "payment_status": PaymentStatus.NO_APLICA,
+            },
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 400, respuesta.data)
+        self.assertIn("detail", respuesta.data)
+
+    def test_filtrar_por_propiedad_no_mezcla_otras_casas(self):
+        """`?property=<slug>` es lo que usa el panel de cada casa para no
+        listar reservaciones de otras propiedades del marketplace."""
+        otra_propiedad = Property.objects.create(
+            supplier=self.supplier_profile,
+            name="Casa Azul",
+            slug="casa-azul",
+            access_type=PropertyAccessType.OPEN,
+            base_price_per_night=Decimal("3000.00"),
+            security_deposit=Decimal("500.00"),
+            cleaning_fee=Decimal("0.00"),
+            max_guests=6,
+        )
+        propia = services.crear_reservacion(
+            guest=self.huesped,
+            check_in=HOY + timedelta(days=150),
+            check_out=HOY + timedelta(days=152),
+            fare_type=self.tarifa,
+        )
+        services.crear_reservacion(
+            guest=self.otro_huesped,
+            propiedad=otra_propiedad,
+            check_in=HOY + timedelta(days=150),
+            check_out=HOY + timedelta(days=152),
+            fare_type=self.tarifa,
+        )
+        self._autenticar(self.admin)
+
+        respuesta = self.client.get(self.url, {"property": "casa-brava"})
+
+        self.assertEqual(respuesta.status_code, 200, respuesta.data)
+        self.assertEqual(respuesta.data["count"], 1)
+        self.assertEqual(respuesta.data["results"][0]["id"], str(propia.pk))
+
+    def test_un_movimiento_no_puede_marcarse_no_aplica(self):
+        reservacion = services.crear_reservacion(
+            guest=self.huesped,
+            check_in=HOY + timedelta(days=160),
+            check_out=HOY + timedelta(days=162),
+            fare_type=self.tarifa,
+        )
+        self._autenticar(self.admin)
+        respuesta = self.client.post(
+            reverse("pago-list"),
+            {
+                "reservation": str(reservacion.pk),
+                "amount": "100.00",
+                "status": PaymentStatus.NO_APLICA,
+            },
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 400, respuesta.data)
+        self.assertIn("status", respuesta.data)
 
 class ApiUsuariosTests(BaseDominio):
     def setUp(self):

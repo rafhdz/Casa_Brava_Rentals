@@ -29,7 +29,15 @@ def _total_cobrado(reservacion):
 
 
 def derivar_estado_de_pago(reservacion):
-    """Traduce los movimientos a uno de los cuatro estados de cobro."""
+    """Traduce los movimientos a uno de los cuatro estados de cobro.
+
+    Una estancia exenta (`NO_APLICA`, la de un propietario en su casa) no se
+    re-deriva: la exención la declara el admin sobre la reservación y ningún
+    movimiento la revierte en silencio — para cobrarle, primero se le quita
+    la exención desde el panel.
+    """
+    if reservacion.payment_status == PaymentStatus.NO_APLICA:
+        return PaymentStatus.NO_APLICA
     if reservacion.payments.filter(status=PaymentStatus.REEMBOLSADO).exists():
         return PaymentStatus.REEMBOLSADO
 

@@ -183,4 +183,19 @@ export function toActionError(error: unknown, fallback = "Ocurrió un error ines
   return error instanceof Error ? error.message : fallback;
 }
 
+/**
+ * Para el `.catch()` de un fetch en un Server Component: un fallo de la API
+ * se convierte en `null`, para pintar el aviso de "backend caído" en vez de
+ * la pantalla de error de Next.js.
+ *
+ * Cualquier otra excepción se vuelve a lanzar — a diferencia de un
+ * `.catch(() => null)` a secas: `serverFetch(All)` señaliza con `redirect()`
+ * cuando la sesión ya no sirve, y tragarse esa señal dejaría a la persona
+ * mirando un mensaje de error en vez de navegar a /login.
+ */
+export function nullOnApiError(error: unknown): null {
+  if (error instanceof ApiError) return null;
+  throw error;
+}
+
 export { ApiError };

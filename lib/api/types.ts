@@ -56,12 +56,27 @@ export type Paginated<T> = {
 export type RoleType = "admin" | "holder" | "guest";
 export type ProfileStatus = "activo" | "invitado";
 export type ReservationStatus = "pendiente" | "confirmada" | "cancelada" | "finalizada";
-export type PaymentStatus = "pendiente" | "parcial" | "completado" | "reembolsado";
+/**
+ * `"na"` ("No aplica") marca una estancia **exenta de cobro**: la de un
+ * propietario (`holder`) en su propia casa. No se deriva de movimientos — la
+ * declara el admin, y el backend la rechaza para cualquier huésped que no sea
+ * `holder` (ver `reservaciones.services._validar_exencion`). Una reservación
+ * exenta no suma al GMV de la plataforma.
+ */
+export type PaymentStatus = "pendiente" | "parcial" | "completado" | "reembolsado" | "na";
 export type PaymentProvider = "simulado" | "stripe";
 export type MealType = "Desayuno" | "Almuerzo" | "Cena";
 
 /** Estados en los que una reservación ocupa el calendario y admite servicios. */
 export const ESTADOS_ACTIVOS: ReservationStatus[] = ["pendiente", "confirmada"];
+
+/**
+ * Estados de una estancia **consolidada**: la que ya se concretó o está en
+ * firme. Es el universo de las métricas de plataforma del Panel de Control
+ * PHH (GMV, ocupación): una `pendiente` todavía puede caerse y una
+ * `cancelada` nunca generó ingreso.
+ */
+export const ESTADOS_CONSOLIDADOS: ReservationStatus[] = ["confirmada", "finalizada"];
 
 /**
  * Los tres tiempos de comida, en el orden en que se ofrecen.
@@ -120,6 +135,32 @@ export type AccessTokenClaims = {
 // ---------------------------------------------------------------------------
 // propiedades
 // ---------------------------------------------------------------------------
+
+/** Mismos valores que `propiedades.PropertyAccessType`. */
+export type PropertyAccessType = "OPEN" | "INVITE_ONLY";
+
+/**
+ * Fila del catálogo de propiedades del marketplace — `/api/propiedades/`
+ * (lectura pública, `PropertySerializer`). Es la propiedad **real** de Django;
+ * no confundir con `Property` de lib/types/marketplace.ts, que describe el
+ * directorio mock.
+ */
+export type PropertyListing = {
+  id: string;
+  name: string;
+  slug: string;
+  access_type: PropertyAccessType;
+  base_price_per_night: Decimal;
+  max_guests: number;
+  is_active: boolean;
+};
+
+/** Datos mínimos de la propiedad que trae anidados una reservación. */
+export type PropertyResumen = {
+  id: string;
+  name: string;
+  slug: string;
+};
 
 export type PropertySettings = {
   id: string;
@@ -277,6 +318,7 @@ export type WineOrder = {
 export type Reservation = {
   id: string;
   guest: GuestResumen;
+  property: PropertyResumen;
   check_in: IsoDate;
   check_out: IsoDate;
   noches: number;
@@ -284,6 +326,18 @@ export type Reservation = {
   fare_type: string;
   fare_type_name: string;
   total_amount: Decimal;
+  /**
+   * Campos financieros del modelo multi-tenant (comisión/payout). Todavía no
+   * los puebla ninguna regla de negocio: `platform_fee` y `supplier_payout`
+   * quedan en `"0.00"`, y `accommodation_total`/`grand_total` solo reflejan
+   * el alta de la estadía. Para montos, usar `total_amount`,
+   * `subtotal_servicios` y `gran_total` — ver backend/README.md.
+   */
+  accommodation_total: Decimal;
+  services_total: Decimal;
+  platform_fee: Decimal;
+  supplier_payout: Decimal;
+  grand_total: Decimal;
   status: ReservationStatus;
   payment_status: PaymentStatus;
   created_at: IsoDateTime;
@@ -319,7 +373,8 @@ export type Payment = {
   id: string;
   reservation: string;
   amount: Decimal;
-  status: PaymentStatus;
+  /** `"na"` describe a la reservación (estancia exenta), nunca a un movimiento. */
+  status: Exclude<PaymentStatus, "na">;
   provider: PaymentProvider;
   /** Id del PaymentIntent/cargo externo. Vacío mientras el cobro siga simulado. */
   external_reference: string | null;

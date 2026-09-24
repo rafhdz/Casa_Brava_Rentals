@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarRange, Library, Users, type LucideIcon } from "lucide-react";
-import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
+import { ownerPanelRoutes } from "@/lib/owner-panel-routes";
 
 /**
  * Navegación secundaria del panel de gestión de Casa Brava
@@ -20,7 +20,9 @@ import { TENANT_ZERO_SLUG } from "@/lib/mock/marketplace-data";
  * administración a owner-panel".
  */
 
-const OWNER_PANEL_ROOT = `/p/${TENANT_ZERO_SLUG}/owner-panel`;
+// Rutas desde `ownerPanelRoutes()`, la misma fuente que usan middleware.ts
+// (guard por rol) y los `revalidatePath` de las Server Actions del panel.
+const ROUTES = ownerPanelRoutes();
 
 type OwnerLink = {
   href: string;
@@ -36,9 +38,9 @@ type OwnerLink = {
 };
 
 const OWNER_LINKS: OwnerLink[] = [
-  { href: OWNER_PANEL_ROOT, label: "Usuarios", icon: Users, exact: true },
-  { href: `${OWNER_PANEL_ROOT}/reservations`, label: "Reservaciones", icon: CalendarRange },
-  { href: `${OWNER_PANEL_ROOT}/catalogos`, label: "Catálogos", icon: Library },
+  { href: ROUTES.root, label: "Usuarios", icon: Users, exact: true },
+  { href: ROUTES.reservations, label: "Reservaciones", icon: CalendarRange },
+  { href: ROUTES.catalogs, label: "Catálogos", icon: Library },
 ];
 
 export default function OwnerNav() {

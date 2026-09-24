@@ -1,6 +1,6 @@
 import OwnerNav from "@/components/OwnerNav";
 import CatalogsView from "@/components/CatalogsView";
-import { ApiError, serverFetchAll } from "@/lib/api/server";
+import { nullOnApiError, serverFetchAll } from "@/lib/api/server";
 import { toNumber } from "@/lib/format";
 import type { FareType, FoodMenu, SpaMasseuse, Wine } from "@/lib/api/types";
 
@@ -11,26 +11,17 @@ import type { FareType, FoodMenu, SpaMasseuse, Wine } from "@/lib/api/types";
  * cuatro peticiones — se lanzan en paralelo y con `serverFetchAll`, no
  * `serverFetch`: son colecciones paginadas de a 50 y el catálogo de vinos
  * puede pasar de ahí sin que nada avise.
+ *
+ * Un fallo de la API se convierte en `null` (`nullOnApiError`) para mostrar
+ * el aviso de "backend caído"; un `redirect()` de sesión expirada se propaga.
  */
-
-/**
- * Un fallo de la API se convierte en `null` para poder mostrar el aviso de
- * "backend caído" en vez de la pantalla de error de Next.js. Cualquier otra
- * excepción se vuelve a lanzar: `serverFetchAll` señaliza con `redirect()`
- * cuando la sesión ya no sirve, y tragarse esa señal dejaría a la persona
- * mirando un mensaje de error en vez de navegar a /login.
- */
-function sinDatos(error: unknown): null {
-  if (error instanceof ApiError) return null;
-  throw error;
-}
 
 export default async function OwnerPanelCatalogsPage() {
   const [fareTypes, masseuses, menus, wines] = await Promise.all([
-    serverFetchAll<FareType>("/api/propiedades/tarifas/").catch(sinDatos),
-    serverFetchAll<SpaMasseuse>("/api/proveedores/masajistas/").catch(sinDatos),
-    serverFetchAll<FoodMenu>("/api/servicios/menus/").catch(sinDatos),
-    serverFetchAll<Wine>("/api/servicios/vinos/").catch(sinDatos),
+    serverFetchAll<FareType>("/api/propiedades/tarifas/").catch(nullOnApiError),
+    serverFetchAll<SpaMasseuse>("/api/proveedores/masajistas/").catch(nullOnApiError),
+    serverFetchAll<FoodMenu>("/api/servicios/menus/").catch(nullOnApiError),
+    serverFetchAll<Wine>("/api/servicios/vinos/").catch(nullOnApiError),
   ]);
 
   const hasError =

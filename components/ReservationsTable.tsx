@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { Sparkles, Utensils, Wine } from "lucide-react";
 import { toast } from "sonner";
-import { formatMoney, toNumber } from "@/lib/format";
+import { formatMoney, toCents, toNumber } from "@/lib/format";
 import type { PaymentStatus, Reservation, ReservationStatus } from "@/lib/api/types";
 import {
   createReservation,
@@ -57,6 +57,7 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   parcial: "Parcial",
   completado: "Completado",
   reembolsado: "Reembolsado",
+  na: "No aplica",
 };
 
 const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
@@ -64,7 +65,31 @@ const PAYMENT_STATUS_CLASSES: Record<PaymentStatus, string> = {
   parcial: "bg-blue-100 text-blue-700",
   completado: "bg-green-100 text-green-700",
   reembolsado: "bg-purple-100 text-purple-700",
+  na: "bg-neutral-100 text-neutral-500",
 };
+
+// Estados de cobro que aplican a cualquier huésped. `"na"` (estancia exenta)
+// va aparte: solo se ofrece para un propietario (`holder`) — el backend
+// rechaza con 400 cualquier otro caso, así que ofrecerlo sería invitar al error.
+const BILLABLE_PAYMENT_STATUSES: Exclude<PaymentStatus, "na">[] = [
+  "pendiente",
+  "parcial",
+  "completado",
+  "reembolsado",
+];
+
+function PaymentStatusOptions({ allowExempt }: { allowExempt: boolean }) {
+  return (
+    <>
+      {BILLABLE_PAYMENT_STATUSES.map((status) => (
+        <option key={status} value={status}>
+          {PAYMENT_STATUS_LABELS[status]}
+        </option>
+      ))}
+      {allowExempt && <option value="na">No aplica (propietario)</option>}
+    </>
+  );
+}
 
 function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
   return (
@@ -120,6 +145,12 @@ function ServicesIndicators({
   );
 }
 
+const GUEST_ROLE_SUFFIX: Record<GuestOption["role"], string> = {
+  admin: " · Admin",
+  holder: " · Propietario",
+  guest: "",
+};
+
 const INPUT_CLASS =
   "rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900 transition-all duration-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-neutral-900";
 
@@ -156,7 +187,9 @@ type ServiceLine = {
 // Todos los montos (`price_per_hour`, `total_price`, `unit_price`) son campos
 // reales de cada booking — el snapshot del precio al momento de contratar, no
 // el del catálogo vigente, que pudo cambiar desde entonces. Viajan como string
-// decimal desde DRF, de ahí el `toNumber` (ver lib/api/types.ts).
+// decimal desde DRF, de ahí el `toNumber` (ver lib/api/types.ts). La única
+// multiplicación (precio unitario × cantidad de una línea de vinos) se hace
+// en centavos, para no arrastrar error de coma flotante al recibo.
 function buildServiceLines(reservation: Reservation): ServiceLine[] {
   const spaLines: ServiceLine[] = reservation.spa_bookings.map((booking) => ({
     key: `spa-${booking.id}`,
@@ -176,7 +209,7 @@ function buildServiceLines(reservation: Reservation): ServiceLine[] {
       label: item.wine
         ? `Vino ${item.producto ?? "sin nombre"} (x${item.quantity})`
         : `Paquete ${item.producto ?? "de vinos"} (x${item.quantity})`,
-      amount: toNumber(item.unit_price) * item.quantity,
+      amount: (toCents(item.unit_price) * item.quantity) / 100,
     }))
   );
 
@@ -231,11 +264,14 @@ function ServiceBreakdown({ reservation }: { reservation: Reservation }) {
 
 function EditReservationModal({
   reservation,
+  isHolderGuest,
   onClose,
   onSave,
   isPending,
 }: {
   reservation: Reservation;
+  /** El huésped es propietario: se puede marcar la estancia como exenta. */
+  isHolderGuest: boolean;
   onClose: () => void;
   onSave: (updates: { status: ReservationStatus; payment_status: PaymentStatus }) => void;
   isPending: boolean;
@@ -300,10 +336,9 @@ function EditReservationModal({
                 onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
                 className={INPUT_CLASS}
               >
-                <option value="pendiente">Pendiente</option>
-                <option value="parcial">Parcial</option>
-                <option value="completado">Completado</option>
-                <option value="reembolsado">Reembolsado</option>
+                {/* Se conserva la opción si ya viene exenta, para no perder el
+                    valor actual al abrir el modal. */}
+                <PaymentStatusOptions allowExempt={isHolderGuest || reservation.payment_status === "na"} />
               </select>
             </label>
           </div>
@@ -342,7 +377,13 @@ function CreateReservationModal({
   const [checkOut, setCheckOut] = useState("");
   const [fareTypeId, setFareTypeId] = useState(fareTypes[0]?.id ?? "");
   const [status, setStatus] = useState<ReservationStatus>("pendiente");
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("pendiente");
+  // Mismo patrón "override manual sobre un valor derivado" que el monto: null
+  // mientras el admin no toque el select, y entonces rige la sugerencia
+  // (`"na"` para un propietario, `"pendiente"` para cualquier otro). Se
+  // deriva en cada render —sin useEffect que "sincronice" el select al
+  // cambiar de huésped—, así que no hay setState en un efecto
+  // (react-hooks/set-state-in-effect) ni renders en cadena.
+  const [manualPaymentStatus, setManualPaymentStatus] = useState<PaymentStatus | null>(null);
   // null hasta que el admin toca el campo a mano; a partir de ahí se
   // "congela" en ese valor y deja de recalcularse aunque cambien
   // fechas/tarifa después. Derivado inline en cada render (ver totalAmount
@@ -352,17 +393,34 @@ function CreateReservationModal({
 
   useCloseOnEscape(onClose);
 
+  const selectedGuest = guests.find((guest) => guest.id === guestId);
+  const isHolderGuest = selectedGuest?.role === "holder";
+  const suggestedPaymentStatus: PaymentStatus = isHolderGuest ? "na" : "pendiente";
+  const paymentStatus = manualPaymentStatus ?? suggestedPaymentStatus;
+
   const selectedFareType = fareTypes.find((fareType) => fareType.id === fareTypeId);
   const nights =
     checkIn && checkOut
       ? Math.max(0, differenceInCalendarDays(parseISO(checkOut), parseISO(checkIn)))
       : 0;
-  // Misma fórmula que components/BookingSummary.tsx, para que el total
-  // sugerido coincida con el que vería un huésped reservando por su cuenta.
+  // Misma fórmula que components/BookingSummary.tsx y que
+  // `calcular_total_estadia` en el backend, para que el total sugerido
+  // coincida con el que vería un huésped reservando por su cuenta. El recargo
+  // se multiplica antes de dividir (13500 × 15 / 100, no 13500 × 0.15) y el
+  // total se cuantiza a centavos: sin eso el input mostraría 2025.0000000000002
+  // y el `step="0.01"` bloquearía el envío.
   const subtotal = nights * propertySettings.nightly_rate;
-  const surcharge = subtotal * ((selectedFareType?.surcharge_percentage ?? 0) / 100);
-  const computedTotal = subtotal + surcharge + propertySettings.security_deposit;
+  const surcharge = (subtotal * (selectedFareType?.surcharge_percentage ?? 0)) / 100;
+  const computedTotal = toCents(subtotal + surcharge + propertySettings.security_deposit) / 100;
   const totalAmount = manualTotalAmount ?? computedTotal;
+
+  function handleGuestChange(nextGuestId: string) {
+    setGuestId(nextGuestId);
+    // Cambiar de huésped descarta la elección manual del estado de pago para
+    // que vuelva a regir la sugerencia del nuevo huésped. Es un handler de
+    // evento, no un efecto: se ejecuta una vez por interacción.
+    setManualPaymentStatus(null);
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -402,13 +460,13 @@ function CreateReservationModal({
             <span className="text-sm font-medium text-neutral-700">Huésped</span>
             <select
               value={guestId}
-              onChange={(e) => setGuestId(e.target.value)}
+              onChange={(e) => handleGuestChange(e.target.value)}
               required
               className={INPUT_CLASS}
             >
               {guests.map((guest) => (
                 <option key={guest.id} value={guest.id}>
-                  {guest.nombre_completo} ({guest.email})
+                  {guest.nombre_completo} ({guest.email}){GUEST_ROLE_SUFFIX[guest.role]}
                 </option>
               ))}
             </select>
@@ -494,16 +552,21 @@ function CreateReservationModal({
               <span className="text-sm font-medium text-neutral-700">Pago</span>
               <select
                 value={paymentStatus}
-                onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                onChange={(e) => setManualPaymentStatus(e.target.value as PaymentStatus)}
                 className={INPUT_CLASS}
               >
-                <option value="pendiente">Pendiente</option>
-                <option value="parcial">Parcial</option>
-                <option value="completado">Completado</option>
-                <option value="reembolsado">Reembolsado</option>
+                <PaymentStatusOptions allowExempt={isHolderGuest} />
               </select>
             </label>
           </div>
+
+          {isHolderGuest && (
+            <p className="-mt-2 text-xs text-neutral-500">
+              {paymentStatus === "na"
+                ? "Estancia de propietario: se sugiere exenta de cobro. No suma al GMV de la plataforma."
+                : "Estancia de propietario marcada con cobro: se registrará como cualquier otra."}
+            </p>
+          )}
 
           <div className="mt-2 flex justify-end gap-3">
             <button type="button" onClick={onClose} disabled={isPending} className={SECONDARY_BUTTON_CLASS}>
@@ -616,6 +679,9 @@ export default function ReservationsTable({
   const [isDeletePending, startDeleteTransition] = useTransition();
 
   const canCreate = guests.length > 0 && fareTypes.length > 0;
+  // `GuestResumen` (lo que trae cada reservación) no incluye el rol; se cruza
+  // con la lista de usuarios que ya bajó la página, sin otra petición.
+  const holderIds = new Set(guests.filter((guest) => guest.role === "holder").map((guest) => guest.id));
 
   function handleEditClick(reservation: Reservation) {
     setSelectedReservation(reservation);
@@ -779,6 +845,7 @@ export default function ReservationsTable({
       {selectedReservation && (
         <EditReservationModal
           reservation={selectedReservation}
+          isHolderGuest={holderIds.has(selectedReservation.guest.id)}
           onClose={handleCloseEditModal}
           onSave={handleSaveReservation}
           isPending={isUpdatePending}
