@@ -90,10 +90,7 @@ independiente (ver el punto siguiente para el porqué).
   `ok` y cualquier payload con forma inesperada caen los tres al mismo
   fallback: `getSeasonalFallback()` devuelve un rango de temperatura típico
   de la temporada (`isLive: false`), nunca lanza — el widget no puede
-  romperse porque Open-Meteo esté caído. `getVendimiaPhase(monthIndex)` es
-  aparte y **pura** (no depende de red): tres fases fijas por mes —
-  julio–septiembre "Vendimia en curso", octubre–febrero "Maduración y poda",
-  marzo–junio "Brotación y floración".
+  romperse porque Open-Meteo esté caído.
   `ParrasStatusWidget` es un **Server Component `async` que hace su propio
   fetch** en vez de recibir los datos por props de `HomePage`: no hay ningún
   estado de cliente que lo obligue a separarse en "page fetch, form
@@ -102,6 +99,16 @@ independiente (ver el punto siguiente para el porqué).
   `app/supplier/page.tsx`. El mapeo `WeatherIconKey` → ícono de
   `lucide-react` (`WEATHER_ICONS`) vive en el componente, no en
   `lib/weather.ts`, igual que `AMENITY_ICONS` en `PropertyCard.tsx`.
+- **[lib/parras-events.ts](lib/parras-events.ts)** — catálogo editorial de los
+  12 meses del calendario enológico y festivo de Parras (`PARRAS_MONTHLY_EVENTS`,
+  indexado 0 = enero como `new Date().getMonth()`), consumido por la segunda
+  fila de `ParrasStatusWidget` a través de `getParrasMonthlyEvent(monthIndex)`.
+  A diferencia de la primera fila (clima, en vivo vía Open-Meteo), esta es
+  **pura y sincrónica** — no depende de ningún fetch, así que nunca falla ni
+  necesita fallback. Mismo patrón que `WeatherIconKey`: el archivo declara
+  solo la clave del ícono (`ParrasEventIconKey`) y el mapeo a componente de
+  `lucide-react` (`EVENT_ICONS`) vive en `ParrasStatusWidget.tsx`, no aquí —
+  para agregar/editar un mes, tocar únicamente `lib/parras-events.ts`.
 - **[components/PropertyDirectory.tsx](components/PropertyDirectory.tsx)** —
   además del filtro por capacidad de huéspedes, aloja las pestañas de
   "Curated Collections" (`COLLECTIONS` en `lib/mock/marketplace-data.ts`):

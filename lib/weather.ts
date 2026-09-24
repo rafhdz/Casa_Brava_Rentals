@@ -1,15 +1,18 @@
-// Clima en vivo de Parras de la Fuente (Open-Meteo) + cálculo del ciclo
-// enológico del mes. Vive en lib/ y no en components/ porque hace I/O real
-// (fetch) — lo consume components/ParrasStatusWidget.tsx, un Server Component
-// async. A diferencia de lib/mock/marketplace-data.ts, nada de aquí lo
-// importa middleware.ts (Edge Runtime), así que sí puede depender de fetch
-// con opciones de Node/Next sin restricción.
+// Clima en vivo de Parras de la Fuente (Open-Meteo), para la primera fila de
+// components/ParrasStatusWidget.tsx. Vive en lib/ y no en components/ porque
+// hace I/O real (fetch) — lo consume ese Server Component async. A diferencia
+// de lib/mock/marketplace-data.ts, nada de aquí lo importa middleware.ts
+// (Edge Runtime), así que sí puede depender de fetch con opciones de
+// Node/Next sin restricción.
 //
 // Es la única llamada saliente del frontend que no es a la API de Django: un
 // clima público, de solo lectura, sin datos de negocio ni de sesión — no
 // rompe la regla de "el frontend no reimplementa reglas de negocio" (ver
 // CLAUDE.md, "Qué es este proyecto"), porque no hay ninguna regla de negocio
 // aquí, solo contenido editorial en vivo para el hero de la landing.
+//
+// La segunda fila (evento/ciclo del mes en curso) es contenido puramente
+// editorial y no necesita fetch — vive en lib/parras-events.ts, no aquí.
 
 export type WeatherIconKey =
   | "sun"
@@ -29,11 +32,6 @@ export type ParrasWeather = {
   maxTemp: number;
   /** false cuando la llamada a Open-Meteo falló y se usó el dato de temporada. */
   isLive: boolean;
-};
-
-export type VendimiaPhase = {
-  label: string;
-  description: string;
 };
 
 const PARRAS_LATITUDE = 25.4417;
@@ -179,26 +177,4 @@ export async function getParrasWeather(): Promise<ParrasWeather> {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-// Fase del ciclo enológico según el mes del sistema (0 = enero). Pura y
-// sincrónica a propósito: no depende de Open-Meteo ni de ningún fetch, así
-// que nunca falla ni necesita fallback.
-export function getVendimiaPhase(monthIndex: number = new Date().getMonth()): VendimiaPhase {
-  if (monthIndex >= 6 && monthIndex <= 8) {
-    return {
-      label: "Vendimia en curso",
-      description: "Julio–septiembre: cosecha activa y fiestas del vino en los viñedos de Parras.",
-    };
-  }
-  if (monthIndex >= 9 || monthIndex <= 1) {
-    return {
-      label: "Maduración y poda",
-      description: "Octubre–febrero: reposo de las vides y catas de barrica en las bodegas.",
-    };
-  }
-  return {
-    label: "Brotación y floración",
-    description: "Marzo–junio: viñedos verdes y clima primaveral en el valle.",
-  };
 }

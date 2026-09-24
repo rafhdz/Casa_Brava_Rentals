@@ -1,7 +1,25 @@
 import type { LucideIcon } from "lucide-react";
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, Grape, Sun } from "lucide-react";
-import { getParrasWeather, getVendimiaPhase } from "@/lib/weather";
+import {
+  Church,
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  Flame,
+  Grape,
+  Scissors,
+  Sparkles,
+  Sun,
+  Utensils,
+  Wine,
+} from "lucide-react";
+import { getParrasWeather } from "@/lib/weather";
 import type { WeatherIconKey } from "@/lib/weather";
+import { getParrasMonthlyEvent } from "@/lib/parras-events";
+import type { ParrasEventIconKey } from "@/lib/parras-events";
 
 // Mapeo clave de ícono → componente de lucide-react. Vive aquí y no en
 // lib/weather.ts, mismo patrón que AMENITY_ICONS en PropertyCard.tsx: ese
@@ -17,6 +35,19 @@ const WEATHER_ICONS: Record<WeatherIconKey, LucideIcon> = {
   "cloud-snow": CloudSnow,
 };
 
+// Mismo patrón para el catálogo mensual de lib/parras-events.ts: ese archivo
+// tampoco depende de lucide-react.
+const EVENT_ICONS: Record<ParrasEventIconKey, LucideIcon> = {
+  scissors: Scissors,
+  sparkles: Sparkles,
+  sun: Sun,
+  church: Church,
+  flame: Flame,
+  grape: Grape,
+  wine: Wine,
+  utensils: Utensils,
+};
+
 // Tarjeta "Parras de la Fuente, hoy" del hero de la landing (app/page.tsx).
 // Server Component async: hace su propio fetch a Open-Meteo (vía
 // lib/weather.ts, con caché ISR de 1 hora y fallback estacional silencioso)
@@ -25,9 +56,17 @@ const WEATHER_ICONS: Record<WeatherIconKey, LucideIcon> = {
 // vive autocontenido, igual que checkTenantZeroChannel() en
 // app/supplier/page.tsx. Puede montarse dentro de cualquier Server Component
 // sin que el padre necesite volverse async ni pasarle props.
+//
+// Dos filas, dos fuentes distintas: la primera (clima) es en vivo, vía
+// getParrasWeather(); la segunda (evento/ciclo del mes) es contenido
+// editorial puro y sincrónico, resuelto con getParrasMonthlyEvent() contra
+// el catálogo de 12 meses de lib/parras-events.ts, indexado por
+// `new Date().getMonth()` — no depende de ningún fetch ni puede fallar.
 export default async function ParrasStatusWidget() {
-  const [weather, vendimia] = await Promise.all([getParrasWeather(), Promise.resolve(getVendimiaPhase())]);
+  const weather = await getParrasWeather();
+  const monthlyEvent = getParrasMonthlyEvent();
   const WeatherIcon = WEATHER_ICONS[weather.icon];
+  const EventIcon = EVENT_ICONS[monthlyEvent.icon];
 
   return (
     <div className="flex flex-col gap-4 rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm [animation:fade-in_400ms_ease-in-out]">
@@ -61,11 +100,11 @@ export default async function ParrasStatusWidget() {
 
       <div className="flex items-center gap-3 border-t border-neutral-100 pt-4">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
-          <Grape className="h-5 w-5" strokeWidth={1.5} aria-hidden />
+          <EventIcon className="h-5 w-5" strokeWidth={1.5} aria-hidden />
         </span>
         <div>
-          <p className="text-sm font-semibold text-neutral-900">{vendimia.label}</p>
-          <p className="text-xs text-neutral-500">{vendimia.description}</p>
+          <p className="text-sm font-semibold text-neutral-900">{monthlyEvent.title}</p>
+          <p className="text-xs text-neutral-500">{monthlyEvent.detail}</p>
         </div>
       </div>
     </div>
